@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -18,6 +19,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _apiKey = TextEditingController();
   final _deployment = TextEditingController();
   final _apiVersion = TextEditingController(text: '2024-02-15-preview');
+  final _proxyUrl = TextEditingController(text: defaultBffUrl);
+  bool _useProxy = true; // always on for BFF
 
   @override
   void dispose() {
@@ -31,6 +34,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final configValue = ref.watch(azureConfigProvider);
+    final isWeb = kIsWeb;
     if (configValue.hasValue) {
       final c = configValue.value!;
       if (_endpoint.text.isEmpty && _apiKey.text.isEmpty && _deployment.text.isEmpty) {
@@ -38,6 +42,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _apiKey.text = c.apiKey;
         _deployment.text = c.deployment;
         _apiVersion.text = c.apiVersion;
+        _proxyUrl.text = c.proxyUrl.isNotEmpty ? c.proxyUrl : _proxyUrl.text;
+        _useProxy = c.useProxy;
       }
     }
 
@@ -47,24 +53,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
+            if (isWeb) ...[
+              Text('Web build uses the backend BFF. No Azure settings needed here. Current BFF: ${_proxyUrl.text}',
+                  style: Theme.of(context).textTheme.bodyMedium),
+              const SizedBox(height: 12),
+            ],
             const Text('Azure OpenAI'),
             const SizedBox(height: 8),
             TextField(
               controller: _endpoint,
               decoration: const InputDecoration(labelText: 'Endpoint (https://<resource>.openai.azure.com)'),
+              enabled: !isWeb,
             ),
             TextField(
               controller: _apiKey,
               decoration: const InputDecoration(labelText: 'API key'),
               obscureText: true,
+              enabled: !isWeb,
             ),
             TextField(
               controller: _deployment,
               decoration: const InputDecoration(labelText: 'Deployment name'),
+              enabled: !isWeb,
             ),
             TextField(
               controller: _apiVersion,
               decoration: const InputDecoration(labelText: 'API version'),
+              enabled: !isWeb,
+            ),
+            SwitchListTile(
+              title: const Text('Use BFF (required)'),
+              value: _useProxy,
+              onChanged: null,
+            ),
+            TextField(
+              controller: _proxyUrl,
+              decoration: const InputDecoration(labelText: 'Proxy URL (e.g. http://localhost:8000/chat)'),
             ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
@@ -108,6 +132,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       apiKey: _apiKey.text.trim(),
       deployment: _deployment.text.trim(),
       apiVersion: _apiVersion.text.trim(),
+      useProxy: _useProxy,
+      proxyUrl: _proxyUrl.text.trim(),
     );
     await ref.read(azureConfigProvider.notifier).save(config);
     if (mounted) {
@@ -121,6 +147,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       apiKey: _apiKey.text.trim(),
       deployment: _deployment.text.trim(),
       apiVersion: _apiVersion.text.trim(),
+      useProxy: _useProxy,
+      proxyUrl: _proxyUrl.text.trim(),
     );
     final client = ref.read(azureChatClientProvider);
     try {

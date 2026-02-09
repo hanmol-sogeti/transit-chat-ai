@@ -1,0 +1,36 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors/IDE
+.vscode/
+.idea/
+*.iml
+
+# Python / backend
+.venv/
+*/.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Env / secrets
+.env
+.env.*
+*.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# Flutter / Dart (root-level mirrors of per-app ignores)
+ul_transit_demo/.dart_tool/
+ul_transit_demo/.flutter-plugins-dependencies
+ul_transit_demo/build/
+ul_transit_demo/coverage/
+ul_transit_demo/ios/Flutter/.last_build_id

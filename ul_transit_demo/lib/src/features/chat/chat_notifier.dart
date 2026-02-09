@@ -30,7 +30,7 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
   Future<void> send(String prompt) async {
     state = [...state, ChatMessage(text: prompt, isUser: true)];
     if (!_ready) {
-      state = [...state, ChatMessage(text: 'Add Azure OpenAI settings first.', isUser: false)];
+      state = [...state, ChatMessage(text: 'Add Azure OpenAI settings first (or enable proxy in Settings).', isUser: false)];
       return;
     }
     final config = _configValue.value!;
