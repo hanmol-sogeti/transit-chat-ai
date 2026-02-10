@@ -21,6 +21,9 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
   LatLng _center = const LatLng(59.8586, 17.6454);
   Position? _position;
 
+  static const LatLng _defaultOrigin = LatLng(59.8574, 17.6210); // S:t Göransgatan 33C
+  static const LatLng _defaultDest = LatLng(59.8725, 17.6150); // Börjetull
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +76,10 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
             if (originStop != null) {
               originPoint = LatLng(originStop!.lat, originStop!.lon);
             }
+
+            // Fallback to known coordinates when matching fails.
+            destPoint ??= _defaultDest;
+            originPoint ??= _defaultOrigin;
           }
 
           final markers = stopsData
@@ -165,6 +172,20 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
 
           return Column(
             children: [
+              if (routeRequest != null)
+                Container(
+                  width: double.infinity,
+                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Rutt', style: Theme.of(context).textTheme.titleMedium),
+                      Text('Från: ${originStop?.name ?? 'S:t Göransgatan 33C'}'),
+                      Text('Till: ${destStop?.name ?? routeRequest.destination}'),
+                    ],
+                  ),
+                ),
               Expanded(
                 child: FlutterMap(
                   options: MapOptions(initialCenter: mapCenter, initialZoom: 13),
@@ -211,9 +232,16 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
 }
 
 Stop? _matchStop(List<Stop> stops, String query) {
-  final lower = query.toLowerCase();
+  final cleaned = _normalize(query);
   for (final s in stops) {
-    if (s.name.toLowerCase().contains(lower)) return s;
+    final name = _normalize(s.name);
+    if (name.contains(cleaned) || cleaned.contains(name)) return s;
   }
   return null;
+}
+
+String _normalize(String input) {
+  final lower = input.toLowerCase();
+  final stripped = lower.replaceAll(RegExp(r'[^a-z0-9åäöé\s]'), '');
+  return stripped.trim();
 }

@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import '../settings/azure_openai_config.dart';
 import '../settings/settings_controller.dart';
 import 'azure_chat_client.dart';
+import '../booking/booking_models.dart';
+import '../map/map_route_provider.dart';
 
 class ChatMessage {
   ChatMessage({required this.text, required this.isUser});
@@ -36,11 +38,30 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
     }
     final config = _configValue.value!;
     try {
-      final reply = await _client.planTrip(prompt: prompt, config: config);
+      final reply = await _client.planTrip(prompt: _withUserContext(prompt), config: config);
       state = [...state, ChatMessage(text: reply, isUser: false)];
     } catch (e) {
       debugPrint('[chat] send error: $e');
       state = [...state, ChatMessage(text: 'Chat failed: $e', isUser: false)];
     }
   }
+}
+
+String _withUserContext(String userPrompt) {
+  const home = MapRouteRequest.defaultOrigin;
+  final profile = demoUserProfile;
+  return '''Användarkontext:
+- Namn: ${profile.name}
+- Kön: ${profile.gender}
+- Född: ${profile.birthdate}
+- Hemadress (ursprung): $home, Uppsala
+
+Instruktioner till assistenten:
+- Planera resa från hemadressen om inget ursprung anges.
+- Föreslå nästa avgångar (upp till 3), linje och hållplats.
+- Svara kort på svenska, lista hållplats, linje och avgångstid.
+- Inkludera destinationen användaren bad om.
+
+Användarfråga:
+$userPrompt''';
 }

@@ -6,6 +6,8 @@ class MapRouteRequest {
   final String destination;
   final String? origin;
 
+  static const defaultOrigin = 'S:t Göransgatan 33C';
+
   factory MapRouteRequest.fromText(String text) {
     final lower = text.toLowerCase();
     final fromTo = RegExp(r'from\s+(.+?)\s+to\s+(.+)', caseSensitive: false).firstMatch(text);
@@ -31,7 +33,7 @@ class MapRouteRequest {
         destination: structuredDest.group(1)?.trim() ?? text,
       );
     }
-    return MapRouteRequest(destination: text.trim());
+    return MapRouteRequest(destination: text.trim(), origin: defaultOrigin);
   }
 }
 
