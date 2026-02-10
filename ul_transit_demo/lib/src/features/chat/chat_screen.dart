@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app_shell.dart';
+import '../map/map_route_provider.dart';
 import '../settings/settings_controller.dart';
 import 'chat_notifier.dart';
 
@@ -31,17 +33,46 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
               itemCount: messages.length,
               itemBuilder: (context, index) {
                 final msg = messages[index];
-                return Align(
-                  alignment: msg.isUser ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: msg.isUser ? Theme.of(context).colorScheme.primaryContainer : Theme.of(context).colorScheme.surfaceVariant,
-                      borderRadius: BorderRadius.circular(12),
+                final looksLikeTrip = !msg.isUser && _looksLikeTrip(msg.text);
+
+                return Column(
+                  crossAxisAlignment: msg.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                  children: [
+                    Align(
+                      alignment: msg.isUser ? Alignment.centerRight : Alignment.centerLeft,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: msg.isUser
+                              ? Theme.of(context).colorScheme.primaryContainer
+                              : Theme.of(context).colorScheme.surfaceVariant,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(msg.text),
+                      ),
                     ),
-                    child: Text(msg.text),
-                  ),
+                    if (looksLikeTrip)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Wrap(
+                          spacing: 8,
+                          children: [
+                            ActionChip(
+                              label: const Text('Visa på karta'),
+                              onPressed: () {
+                                ref.read(mapRouteRequestProvider.notifier).state = MapRouteRequest.fromText(msg.text);
+                                ref.read(navIndexProvider.notifier).state = 1; // Map tab
+                              },
+                            ),
+                            ActionChip(
+                              label: const Text('Boka'),
+                              onPressed: () => ref.read(navIndexProvider.notifier).state = 3, // Tickets tab
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 );
               },
             ),
@@ -77,6 +108,11 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
     ref.read(chatSessionProvider.notifier).send(text);
     _controller.clear();
   }
+}
+
+bool _looksLikeTrip(String text) {
+  final lower = text.toLowerCase();
+  return lower.contains('resa') || lower.contains('boka') || lower.contains('till') || lower.contains('avgång');
 }
 
 class _ConfigBanner extends StatelessWidget {

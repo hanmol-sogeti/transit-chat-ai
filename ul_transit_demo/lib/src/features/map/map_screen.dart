@@ -8,6 +8,7 @@ import '../gtfs/gtfs_models.dart';
 import '../gtfs/gtfs_providers.dart';
 import '../stops/stop_detail_screen.dart';
 import '../../widgets/async_value_view.dart';
+import 'map_route_provider.dart';
 
 class GtfsMapScreen extends ConsumerStatefulWidget {
   const GtfsMapScreen({super.key});
@@ -44,12 +45,36 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
   Widget build(BuildContext context) {
     final stops = ref.watch(stopsProvider);
     final shape = ref.watch(shapeProvider('UL101'));
+    final routeRequest = ref.watch(mapRouteRequestProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Map')),
       body: AsyncValueView(
         value: stops,
         builder: (stopsData) {
+          debugPrint('[map] render stops=${stopsData.length} routeReq=${routeRequest?.destination}');
+          Stop? destStop;
+          Stop? originStop;
+          LatLng? destPoint;
+          LatLng? originPoint;
+          AsyncValue<List<Departure>>? departures;
+
+          if (routeRequest != null) {
+            destStop = _matchStop(stopsData, routeRequest.destination);
+            originStop = routeRequest.origin != null ? _matchStop(stopsData, routeRequest.origin!) : null;
+
+            destStop ??= stopsData.isNotEmpty ? stopsData.first : null;
+            originStop ??= (stopsData.length > 1 ? stopsData[1] : destStop);
+
+            if (destStop != null) {
+              destPoint = LatLng(destStop!.lat, destStop!.lon);
+              departures = ref.watch(stopDeparturesProvider(destStop!.id));
+            }
+            if (originStop != null) {
+              originPoint = LatLng(originStop!.lat, originStop!.lon);
+            }
+          }
+
           final markers = stopsData
               .map(
                 (stop) => Marker(
@@ -72,6 +97,28 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
               )
               .toList();
 
+          if (destPoint != null) {
+            markers.add(
+              Marker(
+                point: destPoint,
+                width: 50,
+                height: 50,
+                child: const Icon(Icons.flag, color: Colors.red, size: 40),
+              ),
+            );
+          }
+
+          if (originPoint != null) {
+            markers.add(
+              Marker(
+                point: originPoint,
+                width: 50,
+                height: 50,
+                child: const Icon(Icons.circle, color: Colors.green, size: 28),
+              ),
+            );
+          }
+
           final polylines = shape.maybeWhen(
             data: (points) => [
               Polyline(
@@ -82,6 +129,26 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
             ],
             orElse: () => <Polyline>[],
           );
+
+          if (originPoint != null && destPoint != null) {
+            polylines.add(
+              Polyline(
+                points: [originPoint, destPoint],
+                color: Colors.orange,
+                strokeWidth: 3,
+                strokeCap: StrokeCap.round,
+              ),
+            );
+          } else if (_position != null && destPoint != null) {
+            polylines.add(
+              Polyline(
+                points: [LatLng(_position!.latitude, _position!.longitude), destPoint],
+                color: Colors.red,
+                strokeWidth: 3,
+                strokeCap: StrokeCap.round,
+              ),
+            );
+          }
 
           final userMarker = _position == null
               ? <Marker>[]
@@ -94,19 +161,59 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
                   ),
                 ];
 
-          return FlutterMap(
-            options: MapOptions(initialCenter: _center, initialZoom: 13),
+          final mapCenter = destPoint ?? _center;
+
+          return Column(
             children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.ul.demo',
+              Expanded(
+                child: FlutterMap(
+                  options: MapOptions(initialCenter: mapCenter, initialZoom: 13),
+                  children: [
+                    TileLayer(
+                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.ul.demo',
+                    ),
+                    PolylineLayer(polylines: polylines),
+                    MarkerLayer(markers: [...markers, ...userMarker]),
+                  ],
+                ),
               ),
-              PolylineLayer(polylines: polylines),
-              MarkerLayer(markers: [...markers, ...userMarker]),
+              if (destStop != null && departures != null)
+                SizedBox(
+                  height: 160,
+                  child: AsyncValueView(
+                    value: departures!,
+                    builder: (items) {
+                      final top3 = items.take(3).toList();
+                      return ListView.separated(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: top3.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final dep = top3[index];
+                          final time = TimeOfDay.fromDateTime(dep.arrivalTime).format(context);
+                          return ListTile(
+                            leading: Text(dep.route.shortName, style: Theme.of(context).textTheme.titleMedium),
+                            title: Text(dep.trip.headsign),
+                            subtitle: Text('Avgång $time • ${dep.stop.name}'),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
             ],
           );
         },
       ),
     );
   }
+}
+
+Stop? _matchStop(List<Stop> stops, String query) {
+  final lower = query.toLowerCase();
+  for (final s in stops) {
+    if (s.name.toLowerCase().contains(lower)) return s;
+  }
+  return null;
 }

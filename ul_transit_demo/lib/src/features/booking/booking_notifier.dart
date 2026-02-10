@@ -38,6 +38,9 @@ class BookingNotifier extends StateNotifier<Booking?> {
       'route': state!.route.shortName,
       'stop': state!.stop.name,
       'departure': state!.departureTime.toIso8601String(),
+      'passenger': state!.user.name,
+      'gender': state!.user.gender,
+      'birthdate': state!.user.birthdate,
       'demo': 'Demo - not a real ticket',
     });
     state = state!.copyWith(status: BookingStatus.ticketed, ticket: ticket);

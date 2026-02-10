@@ -1,10 +1,23 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'src/app_shell.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Log Flutter framework errors to console for easier debugging in release/web.
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('FlutterError: ${details.exceptionAsString()}\n${details.stack}');
+  };
+  // Catch unhandled async errors.
+  ui.PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('Unhandled error: $error\n$stack');
+    return true;
+  };
   runApp(const ProviderScope(child: UlTransitApp()));
 }
 

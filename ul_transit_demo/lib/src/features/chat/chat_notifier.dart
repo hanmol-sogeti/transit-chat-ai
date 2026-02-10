@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
@@ -38,6 +39,7 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
       final reply = await _client.planTrip(prompt: prompt, config: config);
       state = [...state, ChatMessage(text: reply, isUser: false)];
     } catch (e) {
+      debugPrint('[chat] send error: $e');
       state = [...state, ChatMessage(text: 'Chat failed: $e', isUser: false)];
     }
   }

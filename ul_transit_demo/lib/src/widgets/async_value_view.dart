@@ -22,7 +22,17 @@ class AsyncValueView<T> extends StatelessWidget {
               const SizedBox(height: 12),
               Text('Something went wrong', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
-              Text('$error'),
+              SelectableText(
+                '$error',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 12),
+              SelectableText(
+                '$stack',
+                textAlign: TextAlign.left,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ),
         ),

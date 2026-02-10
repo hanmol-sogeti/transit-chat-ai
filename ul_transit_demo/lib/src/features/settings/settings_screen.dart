@@ -6,6 +6,7 @@ import 'azure_openai_config.dart';
 import 'settings_controller.dart';
 import '../chat/chat_notifier.dart';
 import '../gtfs/gtfs_providers.dart';
+import '../booking/booking_models.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -53,6 +54,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Användarprofil', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Text('Namn: ${demoUserProfile.name}'),
+                    Text('Kön: ${demoUserProfile.gender}'),
+                    Text('Födelsedatum: ${demoUserProfile.birthdate}'),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             if (isWeb) ...[
               Text('Web build uses the backend BFF. No Azure settings needed here. Current BFF: ${_proxyUrl.text}',
                   style: Theme.of(context).textTheme.bodyMedium),

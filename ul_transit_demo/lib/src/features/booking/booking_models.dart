@@ -6,6 +6,15 @@ enum BookingStatus { draft, authorized, captured, ticketed }
 
 enum PaymentStatus { idle, processing, succeeded, failed }
 
+class UserProfile {
+  const UserProfile({required this.name, required this.gender, required this.birthdate});
+  final String name;
+  final String gender;
+  final String birthdate;
+}
+
+const demoUserProfile = UserProfile(name: 'John Doe', gender: 'Man', birthdate: '1975-01-01');
+
 class Booking {
   Booking({
     required this.id,
@@ -15,6 +24,7 @@ class Booking {
     required this.departureTime,
     required this.status,
     required this.price,
+    required this.user,
     this.ticket,
   });
 
@@ -25,6 +35,7 @@ class Booking {
   final DateTime departureTime;
   final BookingStatus status;
   final double price;
+  final UserProfile user;
   final Ticket? ticket;
 
   Booking copyWith({
@@ -39,6 +50,7 @@ class Booking {
       departureTime: departureTime,
       status: status ?? this.status,
       price: price,
+      user: user,
       ticket: ticket ?? this.ticket,
     );
   }
@@ -52,6 +64,7 @@ class Booking {
       departureTime: departure,
       status: BookingStatus.draft,
       price: 39.0,
+      user: demoUserProfile,
       ticket: null,
     );
   }

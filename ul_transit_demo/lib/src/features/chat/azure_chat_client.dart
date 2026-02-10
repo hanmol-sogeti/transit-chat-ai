@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../settings/azure_openai_config.dart';
@@ -19,7 +20,9 @@ class AzureChatClient {
       'max_tokens': 5,
     };
 
+    debugPrint('[chat] testConnection POST ${uri.toString()}');
     final response = await _http.post(uri, headers: headers, body: jsonEncode(body));
+    debugPrint('[chat] status ${response.statusCode}: ${response.body}');
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -42,7 +45,9 @@ class AzureChatClient {
       'max_tokens': 180,
     };
 
+    debugPrint('[chat] planTrip POST ${uri.toString()}');
     final response = await _http.post(uri, headers: headers, body: jsonEncode(body));
+    debugPrint('[chat] status ${response.statusCode}: ${response.body}');
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final json = jsonDecode(response.body) as Map<String, dynamic>;

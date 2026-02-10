@@ -78,6 +78,8 @@ class _BookingSummary extends StatelessWidget {
             Text('Price: ${booking.price.toStringAsFixed(0)} kr'),
             const SizedBox(height: 4),
             Text('Status: ${booking.status.name}'),
+            const SizedBox(height: 4),
+            Text('Resenär: ${booking.user.name} (${booking.user.gender}, född ${booking.user.birthdate})'),
           ],
         ),
       ),
