@@ -169,9 +169,9 @@ class GtfsDatabase {
     });
     await db.insert('stops', {
       'stop_id': '7503',
-      'stop_name': 'S:t Göransgatan 33C',
-      'stop_lat': 59.8574,
-      'stop_lon': 17.6210,
+      'stop_name': 'Bredgränd 14',
+      'stop_lat': 59.8580,
+      'stop_lon': 17.6389,
     });
     await db.insert('stops', {
       'stop_id': '7504',
@@ -209,7 +209,7 @@ class GtfsDatabase {
       {'lat': 59.8630, 'lon': 17.6350, 'seq': 2},
       {'lat': 59.8675, 'lon': 17.6420, 'seq': 3},
       {'lat': 59.8741, 'lon': 17.6707, 'seq': 4},
-      {'lat': 59.8574, 'lon': 17.6210, 'seq': 5},
+      {'lat': 59.8580, 'lon': 17.6389, 'seq': 5},
       {'lat': 59.8725, 'lon': 17.6150, 'seq': 6},
     ];
     for (final p in shapePoints) {

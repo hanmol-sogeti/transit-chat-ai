@@ -66,7 +66,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     Text('Kön: ${demoUserProfile.gender}'),
                     Text('Födelsedatum: ${demoUserProfile.birthdate}'),
                     const SizedBox(height: 4),
-                    const Text('Hemadress: S:t Göransgatan 33C, Uppsala'),
+                    const Text('Hemadress: Bredgränd 14, 753 20 Uppsala'),
                   ],
                 ),
               ),

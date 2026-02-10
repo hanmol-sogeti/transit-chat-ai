@@ -6,7 +6,7 @@ class MapRouteRequest {
   final String destination;
   final String? origin;
 
-  static const defaultOrigin = 'S:t Göransgatan 33C';
+  static const defaultOrigin = 'Bredgränd 14, 753 20 Uppsala';
 
   factory MapRouteRequest.fromText(String text) {
     final lower = text.toLowerCase();

@@ -21,7 +21,7 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
   LatLng _center = const LatLng(59.8586, 17.6454);
   Position? _position;
 
-  static const LatLng _defaultOrigin = LatLng(59.8574, 17.6210); // S:t Göransgatan 33C
+  static const LatLng _defaultOrigin = LatLng(59.8580, 17.6389); // Bredgränd 14
   static const LatLng _defaultDest = LatLng(59.8725, 17.6150); // Börjetull
 
   @override
@@ -181,7 +181,7 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Rutt', style: Theme.of(context).textTheme.titleMedium),
-                      Text('Från: ${originStop?.name ?? 'S:t Göransgatan 33C'}'),
+                      Text('Från: ${originStop?.name ?? 'Bredgränd 14'}'),
                       Text('Till: ${destStop?.name ?? routeRequest.destination}'),
                     ],
                   ),
