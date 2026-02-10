@@ -3,7 +3,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from main import app
+from main import SYSTEM_PROMPT, app
 
 
 def _has_azure_env() -> bool:
@@ -39,3 +39,11 @@ def test_health():
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+
+def test_system_prompt_defaults_to_swedish_and_now_from_current_location():
+    text = SYSTEM_PROMPT.lower()
+    assert "svenska" in text  # responds in Swedish
+    assert "nu" in text  # default time is now
+    assert "aktuell" in text or "aktuella" in text  # current location as origin
+    assert "destination" in text  # trip target mentioned
