@@ -23,7 +23,13 @@ final chatSessionProvider = StateNotifierProvider<ChatNotifier, List<ChatMessage
 });
 
 class ChatNotifier extends StateNotifier<List<ChatMessage>> {
-  ChatNotifier(this._configValue, this._client) : super(const []);
+  ChatNotifier(this._configValue, this._client)
+      : super([
+          ChatMessage(
+            text: 'Hej ${demoUserProfile.name}! Hur kan jag hjälpa dig idag: boka resa, se avgångar eller kolla förseningar?',
+            isUser: false,
+          ),
+        ]);
 
   final AsyncValue<AzureOpenAIConfig> _configValue;
   final AzureChatClient _client;

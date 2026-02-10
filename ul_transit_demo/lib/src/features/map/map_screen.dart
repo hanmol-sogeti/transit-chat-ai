@@ -23,6 +23,7 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
 
   static const LatLng _defaultOrigin = LatLng(59.8580, 17.6389); // Bredgränd 14
   static const LatLng _defaultDest = LatLng(59.8725, 17.6150); // Börjetull
+  static const String _defaultDestName = 'Börjetull';
 
   @override
   void initState() {
@@ -47,7 +48,6 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
   @override
   Widget build(BuildContext context) {
     final stops = ref.watch(stopsProvider);
-    final shape = ref.watch(shapeProvider('UL101'));
     final routeRequest = ref.watch(mapRouteRequestProvider);
 
     return Scaffold(
@@ -63,21 +63,19 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
           AsyncValue<List<Departure>>? departures;
 
           if (routeRequest != null) {
-            destStop = _matchStop(stopsData, routeRequest.destination);
+            destStop = _matchStop(stopsData, routeRequest.destination) ?? _matchStop(stopsData, _defaultDestName);
             originStop = routeRequest.origin != null ? _matchStop(stopsData, routeRequest.origin!) : null;
-
-            destStop ??= stopsData.isNotEmpty ? stopsData.first : null;
-            originStop ??= (stopsData.length > 1 ? stopsData[1] : destStop);
 
             if (destStop != null) {
               destPoint = LatLng(destStop!.lat, destStop!.lon);
               departures = ref.watch(stopDeparturesProvider(destStop!.id));
             }
+
             if (originStop != null) {
               originPoint = LatLng(originStop!.lat, originStop!.lon);
             }
 
-            // Fallback to known coordinates when matching fails.
+            // Fallback to known coordinates when matching fails, avoiding home->home collapse.
             destPoint ??= _defaultDest;
             originPoint ??= _defaultOrigin;
           }
@@ -126,23 +124,14 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
             );
           }
 
-          final polylines = shape.maybeWhen(
-            data: (points) => [
-              Polyline(
-                points: points.map((p) => LatLng(p.lat, p.lon)).toList(),
-                color: Theme.of(context).colorScheme.primary,
-                strokeWidth: 4,
-              ),
-            ],
-            orElse: () => <Polyline>[],
-          );
+          final polylines = <Polyline>[];
 
           if (originPoint != null && destPoint != null) {
             polylines.add(
               Polyline(
                 points: [originPoint, destPoint],
                 color: Colors.orange,
-                strokeWidth: 3,
+                strokeWidth: 4,
                 strokeCap: StrokeCap.round,
               ),
             );
@@ -168,7 +157,13 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
                   ),
                 ];
 
-          final mapCenter = destPoint ?? _center;
+          LatLng mapCenter = destPoint ?? _center;
+          if (originPoint != null && destPoint != null) {
+            mapCenter = LatLng(
+              (originPoint.latitude + destPoint.latitude) / 2,
+              (originPoint.longitude + destPoint.longitude) / 2,
+            );
+          }
 
           return Column(
             children: [

@@ -137,7 +137,12 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
 
 bool _looksLikeTrip(String text) {
   final lower = text.toLowerCase();
-  return lower.contains('resa') || lower.contains('boka') || lower.contains('till') || lower.contains('avgång');
+  return lower.contains(' till ') ||
+      lower.contains('till ') ||
+      lower.contains(' från ') ||
+      lower.contains('från ') ||
+      lower.contains('destination') ||
+      lower.contains('destin');
 }
 
 class _ConfigBanner extends StatelessWidget {
