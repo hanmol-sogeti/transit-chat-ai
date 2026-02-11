@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../booking/booking_notifier.dart';
-import '../booking/booking_models.dart';
 import '../gtfs/gtfs_models.dart';
 import '../gtfs/gtfs_providers.dart';
 import '../../widgets/async_value_view.dart';

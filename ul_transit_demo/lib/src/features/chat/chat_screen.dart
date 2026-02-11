@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:meta/meta.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../app_shell.dart';
 import '../gtfs/gtfs_models.dart';
@@ -81,7 +82,7 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                         decoration: BoxDecoration(
                           color: msg.isUser
                               ? Theme.of(context).colorScheme.primaryContainer
-                              : Theme.of(context).colorScheme.surfaceVariant,
+                              : Theme.of(context).colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: SelectableText(
@@ -120,7 +121,7 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                       if (looksLikeTrip && destStop != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
-                          child: Text('Destination (matchad hållplats): ${destStop!.name}'),
+                          child: Text('Destination (matchad hållplats): ${destStop.name} (${destStop.lat.toStringAsFixed(6)}, ${destStop.lon.toStringAsFixed(6)})'),
                         ),
                       if (looksLikeTrip && routeReq != null && destStop == null)
                         Padding(
@@ -150,7 +151,7 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                       if (looksLikeTrip && routeReq != null && destStop != null && _expandedMapIndexes.contains(index))
                         Padding(
                           padding: const EdgeInsets.only(top: 8),
-                          child: _InlineRouteMap(routeReq: routeReq!, origin: originStop, destination: destStop!),
+                          child: _InlineRouteMap(routeReq: routeReq, origin: originStop, destination: destStop),
                         ),
                     ],
                 );
@@ -220,7 +221,21 @@ class _InlineRouteMap extends ConsumerWidget {
     final originPoint = origin != null ? LatLng(origin!.lat, origin!.lon) : null;
     final destPoint = LatLng(destination.lat, destination.lon);
     if (originPoint == null) {
-      return const Text('Kunde inte matcha avresehållplats.');
+      return FutureBuilder<Stop?>(
+        future: _resolveOriginStop(ref, routeReq),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Row(children: [SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 8), Text('Söker avresehållplats...')]);
+          }
+          final resolved = snap.data;
+          if (resolved == null) return const Text('Kunde inte matcha avresehållplats.');
+          final resolvedPoint = LatLng(resolved.lat, resolved.lon);
+          final query = RouteQuery(origin: resolvedPoint, destination: destPoint);
+          final legs = ref.watch(mapRouteLegsProvider(query));
+
+          return _buildRouteMap(context, ref, legs, resolvedPoint, destPoint);
+        },
+      );
     }
 
     final query = RouteQuery(origin: originPoint, destination: destPoint);
@@ -285,6 +300,99 @@ class _InlineRouteMap extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildRouteMap(BuildContext context, WidgetRef ref, AsyncValue<List<RouteLeg>> legs, LatLng originPoint, LatLng destPoint) {
+    return SizedBox(
+      height: 220,
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: legs.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text('Rutt kunde inte beräknas: $e'),
+            ),
+            data: (items) {
+              final polylines = items
+                  .map(
+                    (leg) => Polyline(
+                      points: leg.points,
+                      color: leg.isWalk ? Colors.blueGrey : Colors.orange,
+                      strokeWidth: leg.isWalk ? 3 : 4,
+                      strokeCap: StrokeCap.round,
+                    ),
+                  )
+                  .toList();
+              final markers = <Marker>[
+                Marker(
+                  point: destPoint,
+                  width: 40,
+                  height: 40,
+                  child: const Icon(Icons.flag, color: Colors.red, size: 32),
+                ),
+                Marker(
+                  point: originPoint,
+                  width: 32,
+                  height: 32,
+                  child: const Icon(Icons.circle, color: Colors.green, size: 24),
+                ),
+              ];
+
+              final center = LatLng(
+                (originPoint.latitude + destPoint.latitude) / 2,
+                (originPoint.longitude + destPoint.longitude) / 2,
+              );
+
+              return FlutterMap(
+                options: MapOptions(initialCenter: center, initialZoom: 13),
+                children: [
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.ul.demo',
+                  ),
+                  PolylineLayer(polylines: polylines),
+                  MarkerLayer(markers: markers),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<Stop?> _resolveOriginStop(WidgetRef ref, MapRouteRequest routeReq) async {
+    final originText = routeReq.origin?.toLowerCase() ?? '';
+    try {
+      // If the origin text mentions avrese/avresehållplats, treat as "nearest to user".
+      if (originText.contains('avrese') || originText.contains('avresehållplats')) {
+        try {
+          final permission = await Geolocator.checkPermission();
+          if (permission == LocationPermission.denied) await Geolocator.requestPermission();
+          final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+          final user = LatLng(pos.latitude, pos.longitude);
+          final repo = ref.read(gtfsRepositoryProvider);
+          final nearest = await repo.nearestStops(user, limit: 1);
+          if (nearest.isNotEmpty) return nearest.first;
+        } catch (_) {
+          // ignore and fallthrough to area search
+        }
+      }
+
+      // Otherwise, try geocoding-based area search against loaded stops.
+      final stops = await ref.read(stopsProvider.future);
+      final areaResults = await _searchStopsByArea(routeReq.origin ?? '', stops);
+      if (areaResults.isNotEmpty) return areaResults.first;
+
+      // Fallback: try direct name matching.
+      final direct = _matchStop(stops, routeReq.origin ?? '');
+      return direct;
+    } catch (_) {
+      return null;
+    }
   }
 }
 
@@ -414,6 +522,32 @@ bool _pointInPolygon(LatLng point, List<LatLng> polygon) {
   return inside;
 }
 
+List<Stop> stopsWithinPolygon(List<Stop> stops, List<LatLng> polygon, {int limit = 50}) {
+  if (polygon.length < 3) return const [];
+  // centroid as simple average of vertices
+  double latSum = 0, lonSum = 0;
+  for (final p in polygon) {
+    latSum += p.latitude;
+    lonSum += p.longitude;
+  }
+  final centroid = LatLng(latSum / polygon.length, lonSum / polygon.length);
+
+  final inside = <Stop>[];
+  for (final s in stops) {
+    final p = LatLng(s.lat, s.lon);
+    if (_pointInPolygon(p, polygon)) inside.add(s);
+  }
+
+  inside.sort((a, b) {
+    final da = _distance(centroid, LatLng(a.lat, a.lon));
+    final db = _distance(centroid, LatLng(b.lat, b.lon));
+    return da.compareTo(db);
+  });
+
+  if (inside.length <= limit) return inside;
+  return inside.take(limit).toList();
+}
+
 List<LatLng>? _extractPolygon(Map<String, dynamic> geojson) {
   final type = (geojson['type'] ?? '').toString().toLowerCase();
   if (type == 'polygon') {
@@ -512,13 +646,31 @@ Future<List<Stop>> _searchStopsByArea(String query, List<Stop> stops, {GeocodeFn
 
   final inside = stops.where(area.contains).toList();
   if (kDebugMode) debugPrint('[geo] area "$query" bbox=(${area.south},${area.north},${area.west},${area.east}) inside=${inside.length}');
-  inside.sort((a, b) {
+  // Prefer stops that are inside the provided polygon first (if polygon exists),
+  // then stops inside the bbox. Within each group, sort by distance to center.
+  final polygon = area.polygon;
+  List<Stop> polygonMatches = [];
+  List<Stop> boxMatches = [];
+  for (final s in inside) {
+    final inPoly = polygon != null && polygon.length >= 3 && _pointInPolygon(LatLng(s.lat, s.lon), polygon);
+    if (inPoly) {
+      polygonMatches.add(s);
+    } else {
+      boxMatches.add(s);
+    }
+  }
+
+  int sortByDist(Stop a, Stop b) {
     final da = _distance(area.center, LatLng(a.lat, a.lon));
     final db = _distance(area.center, LatLng(b.lat, b.lon));
     return da.compareTo(db);
-  });
+  }
 
-  if (inside.isNotEmpty) return inside.take(10).toList();
+  polygonMatches.sort(sortByDist);
+  boxMatches.sort(sortByDist);
+
+  final combined = [...polygonMatches, ...boxMatches];
+  if (combined.isNotEmpty) return combined.take(10).toList();
 
   if (kDebugMode) debugPrint('[geo] area "$query" no inside stops; returning empty (no fallback)');
   return const [];

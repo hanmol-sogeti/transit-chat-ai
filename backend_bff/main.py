@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import httpx
+import certifi
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -34,6 +35,15 @@ GTFS_SWEDEN3_STATIC_KEY = os.getenv("GTFS_SWEDEN3_STATIC_KEY", "")
 GTFS_SWEDEN3_STATIC_URL = os.getenv(
     "GTFS_SWEDEN3_STATIC_URL", "https://opendata.samtrafiken.se/gtfs/sweden3/latest.zip"
 )
+
+# Allow overriding HTTPX verify behavior for local dev. If set to 'false', SSL
+# verification will be skipped (useful behind corporate proxies or for machines
+# without proper CA bundles). Default is to use certifi's CA bundle.
+_httpx_verify_env = os.getenv("HTTPX_VERIFY", "true").lower()
+if _httpx_verify_env in ("false", "0", "no"):
+    HTTPX_VERIFY = False
+else:
+    HTTPX_VERIFY = certifi.where()
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +122,22 @@ def _download_gtfs_sweden3() -> List[StopOut]:
         else f"{GTFS_SWEDEN3_STATIC_URL}&key={GTFS_SWEDEN3_STATIC_KEY}"
     )
     logger.info("Downloading GTFS Sweden3 feed from %s", url)
-    with httpx.stream("GET", url, timeout=60.0) as resp:
-        resp.raise_for_status()
-        content = resp.read()
+    try:
+        with httpx.stream("GET", url, timeout=60.0, verify=HTTPX_VERIFY) as resp:
+            resp.raise_for_status()
+            content = resp.read()
+    except Exception as exc:
+        # If SSL verification fails in some local environments (corporate proxy,
+        # missing CA bundle), retry once with verification disabled to allow
+        # local development. Preserve the original exception if the retry fails.
+        msg = str(exc)
+        if "CERTIFICATE_VERIFY_FAILED" in msg or "certificate verify failed" in msg:
+            logger.warning("SSL verification failed downloading GTFS; retrying without verification: %s", exc)
+            with httpx.stream("GET", url, timeout=60.0, verify=False) as resp:
+                resp.raise_for_status()
+                content = resp.read()
+        else:
+            raise
 
     with zipfile.ZipFile(io.BytesIO(content)) as zf:
         if "stops.txt" not in zf.namelist():
@@ -162,7 +185,7 @@ async def call_openai(messages: List[dict], temperature: float, max_tokens: Opti
         "max_tokens": max_tokens,
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, verify=HTTPX_VERIFY) as client:
         resp = await client.post(url, headers=headers, json=payload)
     if resp.status_code >= 300:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)

@@ -4,6 +4,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import 'sweden_loader_stub.dart'
+  if (dart.library.io) 'sweden_loader_io.dart'
+  if (dart.library.html) 'sweden_loader_web.dart';
 
 class GtfsDatabase {
   static const _dbName = 'gtfs_ul.db';
@@ -19,6 +22,13 @@ class GtfsDatabase {
     'stop_times': <Map<String, Object?>>[],
     'shapes': <Map<String, Object?>>[],
   };
+
+  // Conditional platform loader for the Sweden CSV feed. Implementations are
+  // provided by sweden_loader_io.dart (io) and sweden_loader_web.dart (web).
+  // The build will pick the appropriate implementation via conditional imports.
+  // See sweden_loader_stub.dart for the fallback.
+  // The function is imported below using conditional imports in this file's
+  // sibling loader files.
 
   Future<Database> database() async {
     if (kIsWeb) {
@@ -249,6 +259,66 @@ class GtfsDatabase {
         'stop_lon': 17.5899,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
+  }
+
+  /// Attempt to load the Sweden GTFS stops CSV into the in-memory tables.
+  ///
+  /// This is a best-effort loader: on platforms where the CSV is readable
+  /// (desktop via relative path `../data/sweden/stops.txt`, or web if the
+  /// dev server serves the file at the same relative path), the in-memory
+  /// `stops` table will be populated with the feed contents instead of the
+  /// small demo seed.
+  Future<void> loadSwedenIntoMemory({String path = '../data/sweden/stops.txt'}) async {
+    try {
+      final text = await loadSwedenStopsFile(path);
+      if (text == null || text.isEmpty) return;
+      final lines = text.split(RegExp(r'\r?\n'));
+      if (lines.length <= 1) return;
+      final parsed = <Map<String, Object?>>[];
+      final header = lines.first.split(',').map((s) => s.trim()).toList();
+      for (var i = 1; i < lines.length; i++) {
+        final line = lines[i].trim();
+        if (line.isEmpty) continue;
+        // Simple CSV split: the GTFS stops file rarely contains commas inside
+        // stop_name for this demo; handle quoted fields minimally.
+        final cols = _splitCsvLine(line);
+        if (cols.length < 4) continue;
+        parsed.add({
+          'stop_id': cols[0],
+          'stop_name': cols[1],
+          'stop_lat': double.tryParse(cols[2]) ?? 0.0,
+          'stop_lon': double.tryParse(cols[3]) ?? 0.0,
+        });
+      }
+      if (parsed.isNotEmpty) {
+        _memoryTables['stops']!.clear();
+        _memoryTables['stops']!.addAll(parsed);
+        _memoryInitialized = true;
+      }
+    } catch (_) {
+      // Best-effort only; ignore failures and keep the sample seed.
+    }
+  }
+
+  List<String> _splitCsvLine(String line) {
+    final out = <String>[];
+    final sb = StringBuffer();
+    var inQuotes = false;
+    for (var i = 0; i < line.length; i++) {
+      final ch = line[i];
+      if (ch == '"') {
+        inQuotes = !inQuotes;
+        continue;
+      }
+      if (ch == ',' && !inQuotes) {
+        out.add(sb.toString());
+        sb.clear();
+        continue;
+      }
+      sb.write(ch);
+    }
+    out.add(sb.toString());
+    return out.map((s) => s.trim()).toList();
   }
 
   Future<List<Map<String, Object?>>> query(String table) async {

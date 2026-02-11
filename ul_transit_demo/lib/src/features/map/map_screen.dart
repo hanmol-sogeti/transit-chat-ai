@@ -76,13 +76,13 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
 
             if (destStop != null) {
               destMatched = true;
-              destPoint = LatLng(destStop!.lat, destStop!.lon);
-              departures = ref.watch(stopDeparturesProvider(destStop!.id));
+              destPoint = LatLng(destStop.lat, destStop.lon);
+              departures = ref.watch(stopDeparturesProvider(destStop.id));
             }
 
             if (originStop != null) {
               originMatched = true;
-              originPoint = LatLng(originStop!.lat, originStop!.lon);
+              originPoint = LatLng(originStop.lat, originStop.lon);
             }
 
             if (destPoint == null || originPoint == null) {
@@ -139,7 +139,7 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
 
           final polylines = <Polyline>[];
           if (legsValue != null) {
-            legsValue!.maybeWhen(
+            legsValue.maybeWhen(
               data: (legs) {
                 polylines.addAll(
                   legs.map(
@@ -180,7 +180,7 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
           }
 
           if (legsValue != null) {
-            legsValue!.maybeWhen(
+            legsValue.maybeWhen(
               data: (legs) => debugPrint('[map] legs received count=${legs.length} firstPoints=${legs.isNotEmpty ? legs.first.points.length : 0}'),
               error: (e, st) => debugPrint('[map] legs error: $e'),
               loading: () => debugPrint('[map] legs loading'),
@@ -193,7 +193,7 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
               if (routeRequest != null)
                 Container(
                   width: double.infinity,
-                  color: routingError == null ? Theme.of(context).colorScheme.surfaceVariant : Theme.of(context).colorScheme.errorContainer,
+                  color: routingError == null ? Theme.of(context).colorScheme.surfaceContainerHighest : Theme.of(context).colorScheme.errorContainer,
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -225,7 +225,7 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
                 SizedBox(
                   height: 160,
                   child: AsyncValueView(
-                    value: departures!,
+                    value: departures,
                     builder: (items) {
                       final top3 = items.take(3).toList();
                       return ListView.separated(

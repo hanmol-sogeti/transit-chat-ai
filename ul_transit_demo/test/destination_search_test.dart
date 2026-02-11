@@ -93,5 +93,20 @@ void main() {
       expect(result, isNotEmpty);
       expect(result.any((s) => s.name.toLowerCase().contains('flogsta')), isTrue);
     });
+
+    test('exists stop within Flogsta area (network)', () async {
+      final stops = <Stop>[
+        // A stop known to be inside Flogsta
+        Stop(id: 'fl1', name: 'Flogsta centrum', lat: 59.8469, lon: 17.5899),
+        // Nearby but outside sample
+        Stop(id: 'o1', name: 'Outside', lat: 59.8700, lon: 17.6500),
+      ];
+
+      final result = await searchStopsByAreaForTest('Flogsta', stops);
+
+      expect(result, isNotEmpty);
+      // At least one returned stop must be one of our sample stops within Flogsta
+      expect(result.any((s) => s.id == 'fl1'), isTrue);
+    });
   });
 }
