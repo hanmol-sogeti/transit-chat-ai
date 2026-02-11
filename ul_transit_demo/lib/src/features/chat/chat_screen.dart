@@ -28,9 +28,18 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
   final _controller = TextEditingController();
   Set<int>? _expandedMaps;
   Map<int, Stop>? _selectedDestinations;
+  Map<int, Stop>? _selectedOrigins;
+  Map<int, Future<Stop?>?>? _originResolveFutures;
 
   Set<int> get _expandedMapIndexes => _expandedMaps ??= <int>{};
   Map<int, Stop> get _chosenDestinations => _selectedDestinations ??= <int, Stop>{};
+  Map<int, Stop> get _chosenOrigins => _selectedOrigins ??= <int, Stop>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _originResolveFutures ??= <int, Future<Stop?>?>{};
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -118,6 +127,11 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                             ),
                           ),
                         ),
+                      if (looksLikeTrip && originStop != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text('Avresehållplats (matchad hållplats): ${originStop.name} (${originStop.lat.toStringAsFixed(6)}, ${originStop.lon.toStringAsFixed(6)})'),
+                        ),
                       if (looksLikeTrip && destStop != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
@@ -151,7 +165,12 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                       if (looksLikeTrip && routeReq != null && destStop != null && _expandedMapIndexes.contains(index))
                         Padding(
                           padding: const EdgeInsets.only(top: 8),
-                          child: _InlineRouteMap(routeReq: routeReq, origin: originStop, destination: destStop),
+                          child: _InlineRouteMap(
+                            routeReq: routeReq,
+                            origin: originStop,
+                            destination: destStop,
+                            originResolveFuture: (_originResolveFutures ??= {})[index] ??= resolveOriginStop(ref, routeReq),
+                          ),
                         ),
                     ],
                 );
@@ -211,10 +230,11 @@ String _plainText(String text) {
 }
 
 class _InlineRouteMap extends ConsumerWidget {
-  const _InlineRouteMap({required this.routeReq, required this.origin, required this.destination});
+  const _InlineRouteMap({required this.routeReq, required this.origin, required this.destination, this.originResolveFuture});
   final MapRouteRequest routeReq;
   final Stop? origin;
   final Stop destination;
+  final Future<Stop?>? originResolveFuture;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -222,7 +242,7 @@ class _InlineRouteMap extends ConsumerWidget {
     final destPoint = LatLng(destination.lat, destination.lon);
     if (originPoint == null) {
       return FutureBuilder<Stop?>(
-        future: _resolveOriginStop(ref, routeReq),
+        future: originResolveFuture ?? resolveOriginStop(ref, routeReq),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Row(children: [SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 8), Text('Söker avresehållplats...')]);
@@ -302,7 +322,7 @@ class _InlineRouteMap extends ConsumerWidget {
     );
   }
 
-  Widget _buildRouteMap(BuildContext context, WidgetRef ref, AsyncValue<List<RouteLeg>> legs, LatLng originPoint, LatLng destPoint) {
+  Widget _buildRouteMap(BuildContext context, WidgetRef ref, AsyncValue<List<MapRouteLeg>> legs, LatLng originPoint, LatLng destPoint) {
     return SizedBox(
       height: 220,
       child: Card(
@@ -318,7 +338,7 @@ class _InlineRouteMap extends ConsumerWidget {
             data: (items) {
               final polylines = items
                   .map(
-                    (leg) => Polyline(
+                    (MapRouteLeg leg) => Polyline(
                       points: leg.points,
                       color: leg.isWalk ? Colors.blueGrey : Colors.orange,
                       strokeWidth: leg.isWalk ? 3 : 4,
@@ -364,35 +384,79 @@ class _InlineRouteMap extends ConsumerWidget {
     );
   }
 
-  Future<Stop?> _resolveOriginStop(WidgetRef ref, MapRouteRequest routeReq) async {
-    final originText = routeReq.origin?.toLowerCase() ?? '';
-    try {
-      // If the origin text mentions avrese/avresehållplats, treat as "nearest to user".
-      if (originText.contains('avrese') || originText.contains('avresehållplats')) {
-        try {
-          final permission = await Geolocator.checkPermission();
-          if (permission == LocationPermission.denied) await Geolocator.requestPermission();
-          final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-          final user = LatLng(pos.latitude, pos.longitude);
-          final repo = ref.read(gtfsRepositoryProvider);
-          final nearest = await repo.nearestStops(user, limit: 1);
-          if (nearest.isNotEmpty) return nearest.first;
-        } catch (_) {
-          // ignore and fallthrough to area search
-        }
+  }
+
+Future<Stop?> resolveOriginStop(WidgetRef ref, MapRouteRequest routeReq) async {
+  final originText = routeReq.origin?.toLowerCase() ?? '';
+  try {
+    if (kDebugMode) debugPrint('[resolve] originText="$originText"');
+    // If the origin text mentions avrese/avresehållplats, treat as "nearest to user".
+    if (originText.contains('avrese') || originText.contains('avresehållplats')) {
+      try {
+        if (kDebugMode) debugPrint('[resolve] detected avrese token, attempting device geolocation');
+        final permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) await Geolocator.requestPermission();
+        final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+        final user = LatLng(pos.latitude, pos.longitude);
+        final repo = ref.read(gtfsRepositoryProvider);
+        final nearest = await repo.nearestStops(user, limit: 1);
+        if (nearest.isNotEmpty) return nearest.first;
+      } catch (_) {
+        // ignore and fallthrough to area search
       }
-
-      // Otherwise, try geocoding-based area search against loaded stops.
-      final stops = await ref.read(stopsProvider.future);
-      final areaResults = await _searchStopsByArea(routeReq.origin ?? '', stops);
-      if (areaResults.isNotEmpty) return areaResults.first;
-
-      // Fallback: try direct name matching.
-      final direct = _matchStop(stops, routeReq.origin ?? '');
-      return direct;
-    } catch (_) {
-      return null;
     }
+
+    // Otherwise, try geocoding first. If the query looks like an exact
+    // address (contains digits, comma, or street keywords), prefer the
+    // nearest stop to the geocoded center. For area-like queries, prefer
+    // polygon/bbox containment first.
+    final stops = await ref.read(stopsProvider.future);
+    final geo = await _geocodeArea(routeReq.origin ?? '');
+    bool looksLikeAddress(String q) {
+      if (q.contains(RegExp(r"\\d"))) return true; // street number
+      if (q.contains(',')) return true; // comma-separated address
+      if (RegExp(r'\\b(gatan|vägen|väg|gata|street|road|st|allee)\\b', caseSensitive: false).hasMatch(q)) return true;
+      return false;
+    }
+
+    if (geo != null && looksLikeAddress(routeReq.origin ?? '')) {
+      if (kDebugMode) debugPrint('[resolve] looksLikeAddress -> using geocode center ${geo.center} to find nearest stop');
+      try {
+        final repo = ref.read(gtfsRepositoryProvider);
+        final nearest = await repo.nearestStops(geo.center, limit: 1);
+        if (nearest.isNotEmpty) {
+          if (kDebugMode) debugPrint('[resolve] nearest to geocode center -> ${nearest.first.name}');
+          return nearest.first;
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('[resolve] nearestStops error: $e');
+      }
+    }
+
+    // For area-like queries, prefer the polygon/bbox matching first.
+    final areaResults = await _searchStopsByArea(routeReq.origin ?? '', stops);
+    if (areaResults.isNotEmpty) return areaResults.first;
+
+    // As a final fallback, if we have a geo center, try nearest stop to it.
+    if (geo != null) {
+      if (kDebugMode) debugPrint('[resolve] area search empty; falling back to nearest to geo center ${geo.center}');
+      try {
+        final repo = ref.read(gtfsRepositoryProvider);
+        final nearest = await repo.nearestStops(geo.center, limit: 1);
+        if (nearest.isNotEmpty) {
+          if (kDebugMode) debugPrint('[resolve] fallback nearest -> ${nearest.first.name}');
+          return nearest.first;
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('[resolve] fallback nearestStops error: $e');
+      }
+    }
+
+    // Fallback: try direct name matching.
+    final direct = _matchStop(stops, routeReq.origin ?? '');
+    return direct;
+  } catch (_) {
+    return null;
   }
 }
 

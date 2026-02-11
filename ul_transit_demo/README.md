@@ -1,6 +1,7 @@
-# ul_transit_demo
+# Conversational ticketing app in Flutter using Azure OpenAI and Swedish transit data
 
-A new Flutter project.
+This Flutter app uses generative AI through Azure based chat models to let riders plan and buy tickets in a modern conversational experience. Riders can list buses with departure and arrival times, view the route on a map inside the chat, and complete ticket purchases directly in the conversation. Origins can be entered as an exact address which will be geocoded to find the nearest stop, or as an area to list all stops within the area.
+
 
 ## Getting Started
 

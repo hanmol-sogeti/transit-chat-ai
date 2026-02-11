@@ -20,6 +20,19 @@ class RouteQuery {
   RouteQuery({required this.origin, required this.destination});
   final LatLng origin;
   final LatLng destination;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is RouteQuery &&
+        origin.latitude == other.origin.latitude &&
+        origin.longitude == other.origin.longitude &&
+        destination.latitude == other.destination.latitude &&
+        destination.longitude == other.destination.longitude;
+  }
+
+  @override
+  int get hashCode => origin.latitude.hashCode ^ origin.longitude.hashCode ^ destination.latitude.hashCode ^ destination.longitude.hashCode;
 }
 
 Future<List<MapRouteLeg>> _callBff(RouteQuery query) async {
@@ -72,7 +85,7 @@ Future<List<MapRouteLeg>> _callOsrm(RouteQuery query) async {
   return [MapRouteLeg(mode: 'BUS', points: coords)];
 }
 
-final mapRouteLegsProvider = FutureProvider.autoDispose.family<List<MapRouteLeg>, RouteQuery>((ref, query) async {
+final mapRouteLegsProvider = FutureProvider.family<List<MapRouteLeg>, RouteQuery>((ref, query) async {
   if (defaultRouteApiUrl.isNotEmpty) {
     return await _callBff(query);
   }
