@@ -9,6 +9,7 @@ import '../gtfs/gtfs_providers.dart';
 import '../stops/stop_detail_screen.dart';
 import '../../widgets/async_value_view.dart';
 import 'map_route_provider.dart';
+import 'map_route_service.dart';
 
 class GtfsMapScreen extends ConsumerStatefulWidget {
   const GtfsMapScreen({super.key});
@@ -58,43 +59,55 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
           debugPrint('[map] render stops=${stopsData.length} routeReq=${routeRequest?.destination}');
           Stop? destStop;
           Stop? originStop;
+          bool originMatched = false;
+          bool destMatched = false;
           LatLng? destPoint;
           LatLng? originPoint;
           AsyncValue<List<Departure>>? departures;
+          AsyncValue<List<MapRouteLeg>>? legsValue;
+          String? routingError;
 
           if (routeRequest != null) {
             destStop = _matchStop(stopsData, routeRequest.destination) ?? _matchStop(stopsData, _defaultDestName);
             originStop = routeRequest.origin != null ? _matchStop(stopsData, routeRequest.origin!) : null;
 
+            // Log matching outcome for debugging
+            debugPrint('[map] match origin=${routeRequest.origin} -> ${originStop?.name} dest=${routeRequest.destination} -> ${destStop?.name}');
+
             if (destStop != null) {
+              destMatched = true;
               destPoint = LatLng(destStop!.lat, destStop!.lon);
               departures = ref.watch(stopDeparturesProvider(destStop!.id));
             }
 
             if (originStop != null) {
+              originMatched = true;
               originPoint = LatLng(originStop!.lat, originStop!.lon);
             }
 
-            // Fallback to known coordinates when matching fails, avoiding home->home collapse.
-            destPoint ??= _defaultDest;
-            originPoint ??= _defaultOrigin;
+            if (destPoint == null || originPoint == null) {
+              routingError = 'Kunde inte matcha start eller mål mot hållplatser. Ingen rutt beräknad.';
+            } else {
+              final query = RouteQuery(origin: originPoint, destination: destPoint);
+              legsValue = ref.watch(mapRouteLegsProvider(query));
+              debugPrint('[map] route query origin=${query.origin.latitude},${query.origin.longitude} dest=${query.destination.latitude},${query.destination.longitude}');
+            }
           }
 
           final markers = stopsData
               .map(
                 (stop) => Marker(
                   point: LatLng(stop.lat, stop.lon),
-                  width: 160,
-                  height: 40,
+                  width: 16,
+                  height: 16,
                   child: GestureDetector(
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => StopDetailScreen(stop: stop),
                     )),
-                    child: Card(
-                      color: Theme.of(context).colorScheme.surface,
-                      child: Padding(
-                        padding: const EdgeInsets.all(6),
-                        child: Text(stop.name, overflow: TextOverflow.ellipsis),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        shape: BoxShape.circle,
                       ),
                     ),
                   ),
@@ -125,24 +138,25 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
           }
 
           final polylines = <Polyline>[];
-
-          if (originPoint != null && destPoint != null) {
-            polylines.add(
-              Polyline(
-                points: [originPoint, destPoint],
-                color: Colors.orange,
-                strokeWidth: 4,
-                strokeCap: StrokeCap.round,
-              ),
-            );
-          } else if (_position != null && destPoint != null) {
-            polylines.add(
-              Polyline(
-                points: [LatLng(_position!.latitude, _position!.longitude), destPoint],
-                color: Colors.red,
-                strokeWidth: 3,
-                strokeCap: StrokeCap.round,
-              ),
+          if (legsValue != null) {
+            legsValue!.maybeWhen(
+              data: (legs) {
+                polylines.addAll(
+                  legs.map(
+                    (leg) => Polyline(
+                      points: leg.points,
+                      color: leg.isWalk ? Colors.blueGrey : Colors.orange,
+                      strokeWidth: leg.isWalk ? 3 : 4,
+                      strokeCap: StrokeCap.round,
+                    ),
+                  ),
+                );
+              },
+              loading: () {},
+              error: (e, _) {
+                routingError = 'Rutt kunde inte beräknas: $e';
+              },
+              orElse: () {},
             );
           }
 
@@ -165,19 +179,32 @@ class _GtfsMapScreenState extends ConsumerState<GtfsMapScreen> {
             );
           }
 
+          if (legsValue != null) {
+            legsValue!.maybeWhen(
+              data: (legs) => debugPrint('[map] legs received count=${legs.length} firstPoints=${legs.isNotEmpty ? legs.first.points.length : 0}'),
+              error: (e, st) => debugPrint('[map] legs error: $e'),
+              loading: () => debugPrint('[map] legs loading'),
+              orElse: () {},
+            );
+          }
+
           return Column(
             children: [
               if (routeRequest != null)
                 Container(
                   width: double.infinity,
-                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  color: routingError == null ? Theme.of(context).colorScheme.surfaceVariant : Theme.of(context).colorScheme.errorContainer,
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Rutt', style: Theme.of(context).textTheme.titleMedium),
-                      Text('Från: ${originStop?.name ?? 'Bredgränd 14'}'),
-                      Text('Till: ${destStop?.name ?? routeRequest.destination}'),
+                      Text('Från: ${originStop?.name ?? routeRequest.origin ?? 'Bredgränd 14'}${originMatched ? '' : ' (ingen match)'}'),
+                      Text('Till: ${destStop?.name ?? routeRequest.destination}${destMatched ? '' : ' (ingen match)'}'),
+                      if (routingError != null) ...[
+                        const SizedBox(height: 4),
+                        Text(routingError!, style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer)),
+                      ],
                     ],
                   ),
                 ),

@@ -7,7 +7,7 @@ import 'package:sqflite/sqflite.dart';
 
 class GtfsDatabase {
   static const _dbName = 'gtfs_ul.db';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
 
   Database? _db;
 
@@ -27,12 +27,18 @@ class GtfsDatabase {
     if (_db != null) return _db!;
     final dir = await getApplicationDocumentsDirectory();
     final dbPath = p.join(dir.path, _dbName);
-    _db = await openDatabase(dbPath, version: _dbVersion, onCreate: _onCreate);
+    _db = await openDatabase(dbPath, version: _dbVersion, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _db!;
   }
 
   void _ensureMemorySeeded() {
-    if (_memoryInitialized) return;
+    // If already seeded, ensure the Flogsta stop exists; if not, reseed.
+    if (_memoryInitialized) {
+      final hasFlogsta = (_memoryTables['stops'] ?? const [])
+          .any((row) => (row['stop_name'] ?? '').toString().toLowerCase().contains('flogsta'));
+      if (hasFlogsta) return;
+      _memoryInitialized = false; // force reseed
+    }
     _memoryInitialized = true;
     _memoryTables.forEach((key, value) => value.clear());
 
@@ -54,6 +60,12 @@ class GtfsDatabase {
         'stop_name': 'Gränby Centrum',
         'stop_lat': 59.8741,
         'stop_lon': 17.6707,
+      },
+      {
+        'stop_id': '7505',
+        'stop_name': 'Flogsta',
+        'stop_lat': 59.8469,
+        'stop_lon': 17.5899,
       },
     ]);
 
@@ -179,6 +191,12 @@ class GtfsDatabase {
       'stop_lat': 59.8725,
       'stop_lon': 17.6150,
     });
+    await db.insert('stops', {
+      'stop_id': '7505',
+      'stop_name': 'Flogsta',
+      'stop_lat': 59.8469,
+      'stop_lon': 17.5899,
+    });
 
     await db.insert('routes', {
       'route_id': 'UL101',
@@ -219,6 +237,17 @@ class GtfsDatabase {
         'shape_pt_lon': p['lon'],
         'shape_pt_sequence': p['seq'],
       });
+    }
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.insert('stops', {
+        'stop_id': '7505',
+        'stop_name': 'Flogsta',
+        'stop_lat': 59.8469,
+        'stop_lon': 17.5899,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
   }
 
