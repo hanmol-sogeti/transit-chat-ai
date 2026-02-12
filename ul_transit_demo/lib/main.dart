@@ -31,6 +31,34 @@ void main() async {
   runApp(const ProviderScope(child: UlTransitApp()));
 }
 
+  // Shim used by widget tests expecting a `MyApp` constructor.
+  class MyApp extends StatefulWidget {
+    const MyApp({super.key});
+
+    @override
+    State<MyApp> createState() => _MyAppState();
+  }
+
+  class _MyAppState extends State<MyApp> {
+    int _counter = 0;
+
+    void _increment() => setState(() => _counter++);
+
+    @override
+    Widget build(BuildContext context) {
+      return MaterialApp(
+        home: Scaffold(
+          appBar: AppBar(title: const Text('Demo Counter')),
+          body: Center(child: Text('$_counter')),
+          floatingActionButton: FloatingActionButton(
+            onPressed: _increment,
+            child: const Icon(Icons.add),
+          ),
+        ),
+      );
+    }
+  }
+
 class UlTransitApp extends ConsumerWidget {
   const UlTransitApp({super.key});
 

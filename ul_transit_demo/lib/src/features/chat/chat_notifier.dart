@@ -9,7 +9,8 @@ import '../booking/booking_models.dart';
 import '../map/map_route_provider.dart';
 
 class ChatMessage {
-  ChatMessage({required this.text, required this.isUser});
+  ChatMessage({required this.text, required this.isUser, String? id}) : id = id ?? DateTime.now().microsecondsSinceEpoch.toString();
+  final String id;
   final String text;
   final bool isUser;
 }
@@ -45,6 +46,7 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
     final config = _configValue.value!;
     try {
       final reply = await _client.planTrip(prompt: _withUserContext(prompt), config: config);
+      // Append the model reply without modification.
       state = [...state, ChatMessage(text: reply, isUser: false)];
     } catch (e) {
       debugPrint('[chat] send error: $e');

@@ -30,6 +30,7 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
   Map<int, Stop>? _selectedDestinations;
   Map<int, Stop>? _selectedOrigins;
   Map<int, Future<Stop?>?>? _originResolveFutures;
+  Map<int, Future<Stop?>?>? _destResolveFutures;
 
   Set<int> get _expandedMapIndexes => _expandedMaps ??= <int>{};
   Map<int, Stop> get _chosenDestinations => _selectedDestinations ??= <int, Stop>{};
@@ -39,6 +40,7 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
   void initState() {
     super.initState();
     _originResolveFutures ??= <int, Future<Stop?>?>{};
+    _destResolveFutures ??= <int, Future<Stop?>?>{};
   }
 
   @override
@@ -64,13 +66,15 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                 MapRouteRequest? routeReq;
                 Stop? originStop;
                 Stop? destStop;
-                if (looksLikeTrip && stopsValue.hasValue) {
+                  if (looksLikeTrip && stopsValue.hasValue) {
                   routeReq = MapRouteRequest.fromText(msg.text);
                   final stops = stopsValue.value!;
                   destStop = _chosenDestinations[index] ?? _matchStop(stops, routeReq.destination);
                   if (routeReq.origin != null) {
                     originStop = _matchStop(stops, routeReq.origin!);
                   }
+                  // Prefer a user-chosen origin override when present for this message.
+                  originStop = _chosenOrigins[index] ?? originStop;
                   if (kDebugMode) {
                     debugPrint('[chat] msg#$index looksLikeTrip=$looksLikeTrip originRaw="${routeReq.origin}" destRaw="${routeReq.destination}" originMatch=${originStop?.name} destMatch=${destStop?.name}');
                   }
@@ -80,7 +84,10 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                   }
                 }
 
+                final displayText = (!msg.isUser && looksLikeTrip && routeReq != null) ? 'Här är din reseplan' : renderedText;
+
                 return Column(
+                  key: ValueKey(msg.id),
                   crossAxisAlignment: msg.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                   children: [
                     Align(
@@ -94,84 +101,229 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                               : Theme.of(context).colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: SelectableText(
-                          renderedText,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                fontWeight: msg.isUser ? FontWeight.w500 : FontWeight.w400,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                                SelectableText(
+                              displayText,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                fontWeight: (!msg.isUser && looksLikeTrip)
+                                    ? FontWeight.bold
+                                    : (msg.isUser ? FontWeight.w500 : FontWeight.w400),
+                                  ),
+                                ),
+                            if (looksLikeTrip && routeReq != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: stopsValue.when(
+                                  loading: () => const Row(
+                                    children: [
+                                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                                      SizedBox(width: 8),
+                                      SelectableText('Laddar hållplatser...'),
+                                    ],
+                                  ),
+                                  error: (e, _) => SelectableText('Kunde inte ladda hållplatser: $e'),
+                                  data: (stops) {
+                                    // Build origin candidates future
+                                    Future<List<Stop>> originFuture() async {
+                                      final q = routeReq!.origin ?? '';
+                                      if (q.isEmpty || q.toLowerCase().contains('avrese')) {
+                                        try {
+                                          final permission = await Geolocator.checkPermission();
+                                          if (permission == LocationPermission.denied) await Geolocator.requestPermission();
+                                          final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+                                          final user = LatLng(pos.latitude, pos.longitude);
+                                          final repo = ref.read(gtfsRepositoryProvider);
+                                          final nearest = await repo.nearestStops(user, limit: 6);
+                                          if (nearest.isNotEmpty) return nearest;
+                                        } catch (_) {}
+                                        return _findCandidates(stops, q);
+                                      }
+                                      final geoCandidates = await _searchStopsByArea(q, stops);
+                                      return geoCandidates.isNotEmpty ? geoCandidates : _findCandidates(stops, q);
+                                    }
+
+                                    Future<List<Stop>> destFuture() async {
+                                      final q = routeReq!.destination;
+                                      final geoCandidates = await _searchStopsByArea(q, stops);
+                                      return geoCandidates.isNotEmpty ? geoCandidates : _findCandidates(stops, q);
+                                    }
+
+                                    return FutureBuilder<List<List<Stop>>>(
+                                      future: Future.wait([originFuture(), destFuture()]),
+                                      builder: (context, snap) {
+                                        if (snap.connectionState == ConnectionState.waiting) {
+                                          return const Row(
+                                            children: [
+                                              SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                                              SizedBox(width: 8),
+                                              SelectableText('Söker förslag på hållplatser...'),
+                                            ],
+                                          );
+                                        }
+                                        final lists = snap.data ?? [<Stop>[], <Stop>[]];
+                                        final originCandidates = lists[0];
+                                        final destCandidates = lists[1];
+
+                                        final originSelected = _chosenOrigins[index] ?? (originStop ?? (originCandidates.isNotEmpty ? originCandidates.first : null));
+                                        final destSelected = _chosenDestinations[index] ?? (destStop ?? (destCandidates.isNotEmpty ? destCandidates.first : null));
+                                        final Stop? _destForMap = destSelected ?? destStop;
+
+                                        return Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const SizedBox.shrink(),
+                                            const SizedBox(height: 6),
+                                            SelectableText('Ursprung:'),
+                                            const SizedBox(height: 4),
+                                            if (originCandidates.length > 1) ...[
+                                              DropdownButton<Stop>(
+                                                value: originSelected,
+                                                items: originCandidates
+                                                    .map((s) => DropdownMenuItem<Stop>(value: s, child: SelectableText(s.name)))
+                                                    .toList(),
+                                                onChanged: (s) => setState(() {
+                                                  if (s != null) _chosenOrigins[index] = s;
+                                                }),
+                                              ),
+                                            ] else if (originSelected != null) ...[
+                                              SelectableText('Föreslagen avgångsplats: ${originSelected.name}'),
+                                            ] else ...[
+                                              FutureBuilder<Stop?>(
+                                                future: (_originResolveFutures ??= {})[index] ??= resolveOriginStop(ref, routeReq!),
+                                                builder: (context, snapOrigin) {
+                                                  if (snapOrigin.connectionState == ConnectionState.waiting) {
+                                                    return const Row(
+                                                      children: [
+                                                        SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                                                        SizedBox(width: 8),
+                                                        SelectableText('Söker avgångsplats...'),
+                                                      ],
+                                                    );
+                                                  }
+                                                  final resolved = snapOrigin.data;
+                                                  if (resolved != null) {
+                                                    // Cache the resolved origin as chosen default for this message
+                                                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                                                      if (!_chosenOrigins.containsKey(index)) {
+                                                        setState(() {
+                                                          _chosenOrigins[index] = resolved;
+                                                        });
+                                                      }
+                                                    });
+                                                    return SelectableText('Föreslagen avgångsplats: ${resolved.name}');
+                                                  }
+                                                  return const SelectableText('Föreslagen avgångsplats: (ingen hittad)');
+                                                },
+                                              ),
+                                            ],
+                                            const SizedBox(height: 8),
+                                            SelectableText('Destination:'),
+                                            const SizedBox(height: 4),
+                                            if (destCandidates.length > 1) ...[
+                                              DropdownButton<Stop>(
+                                                value: destSelected,
+                                                items: destCandidates
+                                                    .map((s) => DropdownMenuItem<Stop>(value: s, child: SelectableText(s.name)))
+                                                    .toList(),
+                                                onChanged: (s) => setState(() {
+                                                  if (s != null) _chosenDestinations[index] = s;
+                                                }),
+                                              ),
+                                            ] else if (destSelected != null) ...[
+                                              SelectableText('Föreslagen destinations plats: ${destSelected.name}'),
+                                            ] else ...[
+                                              FutureBuilder<Stop?>(
+                                                future: (_destResolveFutures ??= {})[index] ??= () async {
+                                                  final q = routeReq!.destination;
+                                                  try {
+                                                    final stops = await ref.read(stopsProvider.future);
+                                                    final geoCandidates = await _searchStopsByArea(q, stops);
+                                                    if (geoCandidates.isNotEmpty) return geoCandidates.first;
+                                                    final base = _findCandidates(stops, q);
+                                                    if (base.isNotEmpty) return base.first;
+                                                    final geo = await _geocodeArea(q);
+                                                    if (geo != null) {
+                                                      final repo = ref.read(gtfsRepositoryProvider);
+                                                      final nearest = await repo.nearestStops(geo.center, limit: 1);
+                                                      if (nearest.isNotEmpty) return nearest.first;
+                                                    }
+                                                  } catch (_) {}
+                                                  return null;
+                                                }(),
+                                                builder: (context, snapDest) {
+                                                  if (snapDest.connectionState == ConnectionState.waiting) {
+                                                    return const Row(
+                                                      children: [
+                                                        SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                                                        SizedBox(width: 8),
+                                                        SelectableText('Söker destinationsplats...'),
+                                                      ],
+                                                    );
+                                                  }
+                                                  final resolved = snapDest.data;
+                                                  if (resolved != null) {
+                                                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                                                      if (!_chosenDestinations.containsKey(index)) {
+                                                        setState(() {
+                                                          _chosenDestinations[index] = resolved;
+                                                        });
+                                                      }
+                                                    });
+                                                    return SelectableText('Föreslagen destinations plats: ${resolved.name}');
+                                                  }
+                                                  return const SelectableText('Föreslagen destinations plats: (ingen hittad)');
+                                                },
+                                              ),
+                                            ],
+                                            const SizedBox(height: 8),
+                                            const SelectableText('Avgångstid: Nu'),
+                                            const SizedBox(height: 8),
+                                            Padding(
+                                              padding: const EdgeInsets.only(top: 6),
+                                              child: Align(
+                                                alignment: Alignment.centerLeft,
+                                                child: ElevatedButton.icon(
+                                                  onPressed: _destForMap == null
+                                                      ? null
+                                                      : () {
+                                                          setState(() {
+                                                            if (_expandedMapIndexes.contains(index)) {
+                                                              _expandedMapIndexes.remove(index);
+                                                            } else {
+                                                              _expandedMapIndexes.add(index);
+                                                            }
+                                                            if (kDebugMode) {
+                                                              debugPrint('[chat] toggle map for msg#$index expanded=${_expandedMapIndexes.contains(index)}');
+                                                            }
+                                                          });
+                                                        },
+                                                  icon: const Icon(Icons.map_outlined),
+                                                  label: SelectableText(_expandedMapIndexes.contains(index) ? 'Dölj karta' : 'Visa karta här'),
+                                                ),
+                                              ),
+                                            ),
+                                            // Inline route map (shows dropdown for route alternatives and renders the selected route)
+                                            if (_expandedMapIndexes.contains(index) && _destForMap != null)
+                                              _InlineRouteMap(
+                                                routeReq: routeReq!,
+                                                origin: originSelected,
+                                                destination: _destForMap,
+                                                originResolveFuture: (_originResolveFutures ??= {})[index] ??= resolveOriginStop(ref, routeReq!),
+                                              ),
+                                          ],
+                                        );
+                                      },
+                                    );
+                                  },
+                                ),
                               ),
+                          ],
                         ),
                       ),
                     ),
-                      if (looksLikeTrip && routeReq != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: ElevatedButton.icon(
-                              onPressed: destStop == null
-                                  ? null
-                                  : () {
-                                      setState(() {
-                                        if (_expandedMapIndexes.contains(index)) {
-                                          _expandedMapIndexes.remove(index);
-                                        } else {
-                                          _expandedMapIndexes.add(index);
-                                        }
-                                        if (kDebugMode) {
-                                          debugPrint('[chat] toggle map for msg#$index expanded=${_expandedMapIndexes.contains(index)}');
-                                        }
-                                      });
-                                    },
-                              icon: const Icon(Icons.map_outlined),
-                              label: Text(_expandedMapIndexes.contains(index) ? 'Dölj karta' : 'Visa karta här'),
-                            ),
-                          ),
-                        ),
-                      if (looksLikeTrip && originStop != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text('Avresehållplats (matchad hållplats): ${originStop.name} (${originStop.lat.toStringAsFixed(6)}, ${originStop.lon.toStringAsFixed(6)})'),
-                        ),
-                      if (looksLikeTrip && destStop != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text('Destination (matchad hållplats): ${destStop.name} (${destStop.lat.toStringAsFixed(6)}, ${destStop.lon.toStringAsFixed(6)})'),
-                        ),
-                      if (looksLikeTrip && routeReq != null && destStop == null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: stopsValue.when(
-                            loading: () => const Row(
-                              children: [
-                                SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                                SizedBox(width: 8),
-                                Text('Laddar hållplatser...'),
-                              ],
-                            ),
-                            error: (e, _) => Text('Kunde inte ladda hållplatser: $e'),
-                            data: (stops) {
-                              final q = routeReq!.destination;
-                              return _DestinationPicker(
-                                query: q,
-                                stops: stops,
-                                onSelect: (stop) => setState(() {
-                                  _chosenDestinations[index] = stop;
-                                  if (kDebugMode) debugPrint('[chat] user selected destination for msg#$index -> ${stop.name}');
-                                }),
-                              );
-                            },
-                          ),
-                        ),
-                      if (looksLikeTrip && routeReq != null && destStop != null && _expandedMapIndexes.contains(index))
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: _InlineRouteMap(
-                            routeReq: routeReq,
-                            origin: originStop,
-                            destination: destStop,
-                            originResolveFuture: (_originResolveFutures ??= {})[index] ??= resolveOriginStop(ref, routeReq),
-                          ),
-                        ),
                     ],
                 );
               },
@@ -229,7 +381,7 @@ String _plainText(String text) {
   return cleaned.trim();
 }
 
-class _InlineRouteMap extends ConsumerWidget {
+class _InlineRouteMap extends ConsumerStatefulWidget {
   const _InlineRouteMap({required this.routeReq, required this.origin, required this.destination, this.originResolveFuture});
   final MapRouteRequest routeReq;
   final Stop? origin;
@@ -237,89 +389,167 @@ class _InlineRouteMap extends ConsumerWidget {
   final Future<Stop?>? originResolveFuture;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final originPoint = origin != null ? LatLng(origin!.lat, origin!.lon) : null;
-    final destPoint = LatLng(destination.lat, destination.lon);
+  ConsumerState<_InlineRouteMap> createState() => _InlineRouteMapState();
+}
+
+class _InlineRouteMapState extends ConsumerState<_InlineRouteMap> {
+  int? _selectedAlternative;
+
+  @override
+  Widget build(BuildContext context) {
+    final originPoint = widget.origin != null ? LatLng(widget.origin!.lat, widget.origin!.lon) : null;
+    final destPoint = LatLng(widget.destination.lat, widget.destination.lon);
+
     if (originPoint == null) {
-      return FutureBuilder<Stop?>(
-        future: originResolveFuture ?? resolveOriginStop(ref, routeReq),
+      return FutureBuilder<Map<String, dynamic>>(
+        future: () async {
+          final resolved = await (widget.originResolveFuture ?? resolveOriginStop(ref, widget.routeReq));
+          if (resolved == null) return {'resolved': null};
+          final resolvedPoint = LatLng(resolved.lat, resolved.lon);
+          final alternatives = await _fetchRouteAlternatives(resolvedPoint, destPoint);
+          return {'resolved': resolved, 'alternatives': alternatives};
+        }(),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
-            return const Row(children: [SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 8), Text('Söker avresehållplats...')]);
+            return const Row(children: [SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 8), SelectableText('Söker avresehållplats...')]);
           }
-          final resolved = snap.data;
-          if (resolved == null) return const Text('Kunde inte matcha avresehållplats.');
-          final resolvedPoint = LatLng(resolved.lat, resolved.lon);
-          final query = RouteQuery(origin: resolvedPoint, destination: destPoint);
-          final legs = ref.watch(mapRouteLegsProvider(query));
+          final data = snap.data;
+          if (data == null || data['resolved'] == null) return const Text('Kunde inte matcha avresehållplats.');
+          final resolved = data['resolved'] as Stop;
+          final alternatives = (data['alternatives'] as List<Map<String, dynamic>>?) ?? [];
 
-          return _buildRouteMap(context, ref, legs, resolvedPoint, destPoint);
+          if (_selectedAlternative == null && alternatives.isNotEmpty) {
+            int best = 0;
+            double bestDur = double.infinity;
+            for (var i = 0; i < alternatives.length; i++) {
+              final d = (alternatives[i]['duration'] as num?)?.toDouble() ?? double.infinity;
+              if (d < bestDur) {
+                bestDur = d;
+                best = i;
+              }
+            }
+            _selectedAlternative = best;
+          }
+
+          final resolvedPoint = LatLng(resolved.lat, resolved.lon);
+          final points = (alternatives.isNotEmpty && _selectedAlternative != null) ? alternatives[_selectedAlternative!]['points'] as List<LatLng> : <LatLng>[];
+          final asyncLegs = AsyncValue<List<MapRouteLeg>>.data(points.isNotEmpty ? [MapRouteLeg(mode: 'BUS', points: points)] : []);
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (alternatives.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      const SelectableText('Förslag på linje/rutt:'),
+                      const SizedBox(width: 12),
+                      DropdownButton<int>(
+                        value: _selectedAlternative,
+                        items: alternatives
+                            .asMap()
+                            .entries
+                            .map((e) => DropdownMenuItem<int>(
+                                  value: e.key,
+                                  child: SelectableText('Förslag ${e.key + 1} — ${_formatDuration(e.value['duration'])}'),
+                                ))
+                            .toList(),
+                        onChanged: (v) => setState(() => _selectedAlternative = v),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              _buildRouteMap(context, ref, asyncLegs, resolvedPoint, destPoint),
+            ],
+          );
         },
       );
     }
 
-    final query = RouteQuery(origin: originPoint, destination: destPoint);
-    final legs = ref.watch(mapRouteLegsProvider(query));
-
-    return SizedBox(
-      height: 220,
-      child: Card(
-        margin: EdgeInsets.zero,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: legs.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text('Rutt kunde inte beräknas: $e'),
-            ),
-            data: (items) {
-              final polylines = items
-                  .map(
-                    (leg) => Polyline(
-                      points: leg.points,
-                      color: leg.isWalk ? Colors.blueGrey : Colors.orange,
-                      strokeWidth: leg.isWalk ? 3 : 4,
-                      strokeCap: StrokeCap.round,
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _fetchRouteAlternatives(originPoint, destPoint),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        final alternatives = snap.data ?? [];
+        if (_selectedAlternative == null && alternatives.isNotEmpty) {
+          int best = 0;
+          double bestDur = double.infinity;
+          for (var i = 0; i < alternatives.length; i++) {
+            final d = (alternatives[i]['duration'] as num?)?.toDouble() ?? double.infinity;
+            if (d < bestDur) {
+              bestDur = d;
+              best = i;
+            }
+          }
+          _selectedAlternative = best;
+        }
+        final points = (alternatives.isNotEmpty && _selectedAlternative != null) ? alternatives[_selectedAlternative!]['points'] as List<LatLng> : <LatLng>[];
+        final asyncLegs = AsyncValue<List<MapRouteLeg>>.data(points.isNotEmpty ? [MapRouteLeg(mode: 'BUS', points: points)] : []);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (alternatives.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    const Text('Förslag på linje/rutt:'),
+                    const SizedBox(width: 12),
+                    DropdownButton<int>(
+                      value: _selectedAlternative,
+                      items: alternatives
+                          .asMap()
+                          .entries
+                          .map((e) => DropdownMenuItem<int>(
+                                value: e.key,
+                                child: Text('Förslag ${e.key + 1} — ${_formatDuration(e.value['duration'])}'),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setState(() => _selectedAlternative = v),
                     ),
-                  )
-                  .toList();
-              final markers = <Marker>[
-                Marker(
-                  point: destPoint,
-                  width: 40,
-                  height: 40,
-                  child: const Icon(Icons.flag, color: Colors.red, size: 32),
+                  ],
                 ),
-                Marker(
-                  point: originPoint,
-                  width: 32,
-                  height: 32,
-                  child: const Icon(Icons.circle, color: Colors.green, size: 24),
-                ),
-              ];
-
-              final center = LatLng(
-                (originPoint.latitude + destPoint.latitude) / 2,
-                (originPoint.longitude + destPoint.longitude) / 2,
-              );
-
-              return FlutterMap(
-                options: MapOptions(initialCenter: center, initialZoom: 13),
-                children: [
-                  TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.ul.demo',
-                  ),
-                  PolylineLayer(polylines: polylines),
-                  MarkerLayer(markers: markers),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
+              ),
+            _buildRouteMap(context, ref, asyncLegs, originPoint, destPoint),
+          ],
+        );
+      },
     );
+  }
+
+  String _formatDuration(dynamic seconds) {
+    if (seconds == null) return '-';
+    final s = (seconds as num).toInt();
+    final mins = (s / 60).round();
+    if (mins < 60) return '${mins} min';
+    final h = mins ~/ 60;
+    final m = mins % 60;
+    return m == 0 ? '${h} h' : '${h} h ${m} min';
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchRouteAlternatives(LatLng originPoint, LatLng destPoint) async {
+    final url = 'https://router.project-osrm.org/route/v1/driving/${originPoint.longitude},${originPoint.latitude};${destPoint.longitude},${destPoint.latitude}?overview=full&geometries=geojson&alternatives=true';
+    final uri = Uri.parse(url);
+    final resp = await http.get(uri);
+    if (resp.statusCode >= 300) throw Exception('OSRM failed ${resp.statusCode}: ${resp.body}');
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    final routes = (data['routes'] as List<dynamic>? ?? []);
+    final out = <Map<String, dynamic>>[];
+    for (final r in routes) {
+      final route = r as Map<String, dynamic>;
+      final geom = route['geometry'] as Map<String, dynamic>?;
+      final coords = (geom?['coordinates'] as List<dynamic>? ?? [])
+          .map((p) => LatLng((p as List)[1] as double, (p)[0] as double))
+          .toList();
+      final duration = (route['duration'] as num?)?.toDouble();
+      final distance = (route['distance'] as num?)?.toDouble();
+      if (coords.length >= 2) {
+        out.add({'points': coords, 'duration': duration, 'distance': distance});
+      }
+    }
+    return out;
   }
 
   Widget _buildRouteMap(BuildContext context, WidgetRef ref, AsyncValue<List<MapRouteLeg>> legs, LatLng originPoint, LatLng destPoint) {
@@ -500,7 +730,7 @@ class _DestinationPicker extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label),
+            SelectableText(label),
             const SizedBox(height: 6),
             Wrap(
               spacing: 8,
@@ -508,7 +738,128 @@ class _DestinationPicker extends StatelessWidget {
               children: candidates
                   .map(
                     (stop) => ActionChip(
-                      label: Text(stop.name),
+                      label: SelectableText(stop.name),
+                      onPressed: () => onSelect(stop),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _OriginPicker extends StatelessWidget {
+  const _OriginPicker({required this.ref, required this.query, required this.stops, required this.onSelect});
+  final WidgetRef ref;
+  final String query;
+  final List<Stop> stops;
+  final ValueChanged<Stop> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    if (kDebugMode) debugPrint('[origin] picker query="$query" stops=${stops.length}');
+    final baseCandidates = _findCandidates(stops, query);
+
+    // If user asked for 'avrese' prefer nearest stops to device location.
+    if (query.toLowerCase().contains('avrese')) {
+      return FutureBuilder<List<Stop>>(
+        future: () async {
+          try {
+            final permission = await Geolocator.checkPermission();
+            if (permission == LocationPermission.denied) await Geolocator.requestPermission();
+            final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+            final user = LatLng(pos.latitude, pos.longitude);
+            final repo = ref.read(gtfsRepositoryProvider);
+            final nearest = await repo.nearestStops(user, limit: 6);
+            if (nearest.isNotEmpty) return nearest;
+          } catch (_) {
+            // ignore and fallthrough to baseCandidates
+          }
+          return baseCandidates;
+        }(),
+        builder: (context, snapshot) {
+          final candidates = snapshot.data ?? baseCandidates;
+          if (snapshot.hasError && candidates.isEmpty) {
+            return Text('Kunde inte hitta närliggande hållplatser. (${snapshot.error})');
+          }
+          if (snapshot.connectionState == ConnectionState.waiting && candidates.isEmpty) {
+            return const Row(
+              children: [
+                SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                SizedBox(width: 8),
+                Text('Hittar närliggande hållplatser...'),
+              ],
+            );
+          }
+          if (candidates.isEmpty) {
+            return const Text('Kunde inte matcha avreseplats mot hållplatser.');
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Välj avresehållplats (närmast):'),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: candidates
+                    .map(
+                      (stop) => ActionChip(
+                        label: Text(stop.name),
+                        onPressed: () => onSelect(stop),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+          );
+        },
+      );
+    }
+
+    // Fallback: behave like destination picker (area-based suggestions first)
+    return FutureBuilder<List<Stop>>(
+      future: _searchStopsByArea(query, stops),
+      builder: (context, snapshot) {
+        final geoCandidates = snapshot.data ?? const <Stop>[];
+        final candidates = geoCandidates.isNotEmpty ? geoCandidates : baseCandidates;
+
+        if (snapshot.hasError && candidates.isEmpty) {
+          return SelectableText('Kunde inte hitta område för avreseplatsen. (${snapshot.error})');
+        }
+        if (snapshot.connectionState == ConnectionState.waiting && candidates.isEmpty) {
+          return const Row(
+            children: [
+              SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+              SizedBox(width: 8),
+              SelectableText('Hittar hållplatser i området...'),
+            ],
+          );
+        }
+        if (candidates.isEmpty) {
+          return const SelectableText('Kunde inte matcha avreseplats mot hållplatser.');
+        }
+
+        final label = geoCandidates.isNotEmpty
+            ? 'Välj avresehållplats i området (OpenStreetMap):'
+            : 'Välj avresehållplats bland förslag:';
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SelectableText(label),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: candidates
+                  .map(
+                    (stop) => ActionChip(
+                      label: SelectableText(stop.name),
                       onPressed: () => onSelect(stop),
                     ),
                   )
