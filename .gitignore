@@ -34,3 +34,7 @@ ul_transit_demo/.flutter-plugins-dependencies
 ul_transit_demo/build/
 ul_transit_demo/coverage/
 ul_transit_demo/ios/Flutter/.last_build_id
+
+# Data directories (GTFS, large assets, local caches)
+data/
+**/data/
