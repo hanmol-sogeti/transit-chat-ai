@@ -20,3 +20,17 @@ final trafiklabRepositoryProvider = Provider<TrafikLabRepository>((ref) {
   final api = ref.watch(trafiklabApiProvider);
   return TrafikLabRepository(api);
 });
+
+/// Delay statistics provider. Optional `lineNumber` filters results.
+final trafiklabDelayStatsProvider = FutureProvider.family<List<dynamic>, String?>((ref, line) async {
+  final repo = ref.watch(trafiklabRepositoryProvider);
+  final stats = await repo.getDelayStats(lineNumber: line);
+  return stats;
+});
+
+/// Vehicle positions provider. Optional `lineNumber` filters results.
+final trafiklabVehiclePositionsProvider = FutureProvider.family<List<dynamic>, String?>((ref, line) async {
+  final repo = ref.watch(trafiklabRepositoryProvider);
+  final positions = await repo.getVehiclePositions(lineNumber: line);
+  return positions;
+});

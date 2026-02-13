@@ -44,4 +44,30 @@ class TrafikLabRepository {
   Future<tl.TripPlan> planTrip(LatLng origin, LatLng destination) async {
     return await _api.planTrip(origin, destination);
   }
+
+  /// Fetch delay statistics; optional `lineNumber` to filter.
+  Future<List<tl.DelayStat>> getDelayStats({String? lineNumber}) async {
+    final raw = await _api.getDelayStats(lineNumber: lineNumber);
+    return raw.map((d) => tl.DelayStat.fromJson({
+          'line': d.line,
+          'delay_seconds': d.delaySeconds,
+          'stop_id': d.stopId,
+          'note': d.note,
+        })).toList();
+  }
+
+  /// Fetch vehicle positions; optional `lineNumber` to filter.
+  Future<List<tl.VehiclePosition>> getVehiclePositions({String? lineNumber}) async {
+    final raw = await _api.vehiclePositions(lineNumber: lineNumber);
+    return raw
+        .map((v) => tl.VehiclePosition.fromJson({
+              'id': v.id,
+              'lat': v.lat,
+              'lon': v.lon,
+              'heading': v.heading,
+              'trip_id': v.tripId,
+              'line': v.route,
+            }))
+        .toList();
+  }
 }

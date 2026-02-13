@@ -51,4 +51,28 @@ class TrafikLabApi {
     // Parse using TripPlan.fromJson if the shape matches; otherwise adapt later.
     return TripPlan.fromJson(json);
   }
+
+  /// Get delay statistics (per-line or global). `lineNumber` is optional.
+  Future<List<DelayStat>> getDelayStats({String? lineNumber}) async {
+    final q = StringBuffer('?key=$apiKey');
+    if (lineNumber != null && lineNumber.isNotEmpty) q.write('&line=${Uri.encodeQueryComponent(lineNumber)}');
+    final uri = Uri.parse('$baseUrl/v2/delays${q.toString()}');
+    final resp = await _http.get(uri);
+    if (resp.statusCode >= 300) throw Exception('TrafikLab delays error ${resp.statusCode}: ${resp.body}');
+    final json = jsonDecode(resp.body) as Map<String, dynamic>;
+    final raw = (json['delays'] as List<dynamic>?) ?? (json['ResponseData'] as List<dynamic>?) ?? [];
+    return raw.map((e) => DelayStat.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Get vehicle positions (GTFS-RT VehiclePositions-like). `lineNumber` optional.
+  Future<List<VehiclePosition>> vehiclePositions({String? lineNumber}) async {
+    final q = StringBuffer('?key=$apiKey');
+    if (lineNumber != null && lineNumber.isNotEmpty) q.write('&line=${Uri.encodeQueryComponent(lineNumber)}');
+    final uri = Uri.parse('$baseUrl/v2/vehiclepositions${q.toString()}');
+    final resp = await _http.get(uri);
+    if (resp.statusCode >= 300) throw Exception('TrafikLab vehiclePositions error ${resp.statusCode}: ${resp.body}');
+    final json = jsonDecode(resp.body) as Map<String, dynamic>;
+    final raw = (json['vehicles'] as List<dynamic>?) ?? (json['positions'] as List<dynamic>?) ?? [];
+    return raw.map((e) => VehiclePosition.fromJson(e as Map<String, dynamic>)).toList();
+  }
 }
