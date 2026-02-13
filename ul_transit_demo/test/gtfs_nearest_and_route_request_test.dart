@@ -11,11 +11,13 @@ class TestGtfsDb extends GtfsDatabase {
   final List<Map<String, Object?>> stops;
   TestGtfsDb(this.stops);
 
+  @override
   Future<List<Map<String, Object?>>> query(String table) async {
     if (table == 'stops') return stops;
     return <Map<String, Object?>>[];
   }
 
+  @override
   Future<List<Map<String, Object?>>> rawQuery(String sql, [List<Object?>? args]) async => <Map<String, Object?>>[];
 }
 

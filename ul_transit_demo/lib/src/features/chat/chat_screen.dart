@@ -6,15 +6,14 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
-import 'package:meta/meta.dart';
 import 'package:geolocator/geolocator.dart';
 
-import '../../app_shell.dart';
 import '../gtfs/gtfs_models.dart';
 import '../gtfs/gtfs_providers.dart';
 import '../map/map_route_provider.dart';
 import '../map/map_route_service.dart';
 import '../settings/settings_controller.dart';
+import '../trafiklab/trafiklab_providers.dart';
 import 'chat_notifier.dart';
 
 class TripChatScreen extends ConsumerStatefulWidget {
@@ -135,7 +134,7 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                                           if (permission == LocationPermission.denied) await Geolocator.requestPermission();
                                           final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
                                           final user = LatLng(pos.latitude, pos.longitude);
-                                          final repo = ref.read(gtfsRepositoryProvider);
+                                          final repo = ref.read(trafiklabRepositoryProvider);
                                           final nearest = await repo.nearestStops(user, limit: 6);
                                           if (nearest.isNotEmpty) return nearest;
                                         } catch (_) {}
@@ -169,7 +168,7 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
 
                                         final originSelected = _chosenOrigins[index] ?? (originStop ?? (originCandidates.isNotEmpty ? originCandidates.first : null));
                                         final destSelected = _chosenDestinations[index] ?? (destStop ?? (destCandidates.isNotEmpty ? destCandidates.first : null));
-                                        final Stop? _destForMap = destSelected ?? destStop;
+                                        final Stop? destForMap = destSelected ?? destStop;
 
                                         return Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,7 +245,7 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                                                     if (base.isNotEmpty) return base.first;
                                                     final geo = await _geocodeArea(q);
                                                     if (geo != null) {
-                                                      final repo = ref.read(gtfsRepositoryProvider);
+                                                      final repo = ref.read(trafiklabRepositoryProvider);
                                                       final nearest = await repo.nearestStops(geo.center, limit: 1);
                                                       if (nearest.isNotEmpty) return nearest.first;
                                                     }
@@ -286,7 +285,7 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                                               child: Align(
                                                 alignment: Alignment.centerLeft,
                                                 child: ElevatedButton.icon(
-                                                  onPressed: _destForMap == null
+                                                  onPressed: destForMap == null
                                                       ? null
                                                       : () {
                                                           setState(() {
@@ -306,12 +305,12 @@ class _TripChatScreenState extends ConsumerState<TripChatScreen> {
                                               ),
                                             ),
                                             // Inline route map (shows dropdown for route alternatives and renders the selected route)
-                                            if (_expandedMapIndexes.contains(index) && _destForMap != null)
+                                            if (_expandedMapIndexes.contains(index) && destForMap != null)
                                               _InlineRouteMap(
                                                 routeReq: routeReq!,
                                                 origin: originSelected,
-                                                destination: _destForMap,
-                                                originResolveFuture: (_originResolveFutures ??= {})[index] ??= resolveOriginStop(ref, routeReq!),
+                                                destination: destForMap,
+                                                originResolveFuture: (_originResolveFutures ??= {})[index] ??= resolveOriginStop(ref, routeReq),
                                               ),
                                           ],
                                         );
@@ -523,10 +522,10 @@ class _InlineRouteMapState extends ConsumerState<_InlineRouteMap> {
     if (seconds == null) return '-';
     final s = (seconds as num).toInt();
     final mins = (s / 60).round();
-    if (mins < 60) return '${mins} min';
+    if (mins < 60) return '$mins min';
     final h = mins ~/ 60;
     final m = mins % 60;
-    return m == 0 ? '${h} h' : '${h} h ${m} min';
+    return m == 0 ? '$h h' : '$h h $m min';
   }
 
   Future<List<Map<String, dynamic>>> _fetchRouteAlternatives(LatLng originPoint, LatLng destPoint) async {
@@ -628,7 +627,7 @@ Future<Stop?> resolveOriginStop(WidgetRef ref, MapRouteRequest routeReq) async {
         if (permission == LocationPermission.denied) await Geolocator.requestPermission();
         final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
         final user = LatLng(pos.latitude, pos.longitude);
-        final repo = ref.read(gtfsRepositoryProvider);
+        final repo = ref.read(trafiklabRepositoryProvider);
         final nearest = await repo.nearestStops(user, limit: 1);
         if (nearest.isNotEmpty) return nearest.first;
       } catch (_) {
@@ -652,7 +651,7 @@ Future<Stop?> resolveOriginStop(WidgetRef ref, MapRouteRequest routeReq) async {
     if (geo != null && looksLikeAddress(routeReq.origin ?? '')) {
       if (kDebugMode) debugPrint('[resolve] looksLikeAddress -> using geocode center ${geo.center} to find nearest stop');
       try {
-        final repo = ref.read(gtfsRepositoryProvider);
+        final repo = ref.read(trafiklabRepositoryProvider);
         final nearest = await repo.nearestStops(geo.center, limit: 1);
         if (nearest.isNotEmpty) {
           if (kDebugMode) debugPrint('[resolve] nearest to geocode center -> ${nearest.first.name}');
@@ -671,7 +670,7 @@ Future<Stop?> resolveOriginStop(WidgetRef ref, MapRouteRequest routeReq) async {
     if (geo != null) {
       if (kDebugMode) debugPrint('[resolve] area search empty; falling back to nearest to geo center ${geo.center}');
       try {
-        final repo = ref.read(gtfsRepositoryProvider);
+        final repo = ref.read(trafiklabRepositoryProvider);
         final nearest = await repo.nearestStops(geo.center, limit: 1);
         if (nearest.isNotEmpty) {
           if (kDebugMode) debugPrint('[resolve] fallback nearest -> ${nearest.first.name}');
@@ -772,7 +771,7 @@ class _OriginPicker extends StatelessWidget {
             if (permission == LocationPermission.denied) await Geolocator.requestPermission();
             final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
             final user = LatLng(pos.latitude, pos.longitude);
-            final repo = ref.read(gtfsRepositoryProvider);
+            final repo = ref.read(trafiklabRepositoryProvider);
             final nearest = await repo.nearestStops(user, limit: 6);
             if (nearest.isNotEmpty) return nearest;
           } catch (_) {

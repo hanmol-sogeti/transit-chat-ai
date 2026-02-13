@@ -8,6 +8,8 @@ import 'src/features/gtfs/startup_helper.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Optionally load .env here if desired. Loading is handled by providers
+  // which prefer `dotenv.env` but also fall back to `Platform.environment`.
   // Attempt to pre-load the Sweden GTFS stops into the in-memory demo tables.
   // This is a best-effort operation and will silently fall back to the
   // built-in sample seed if the file isn't available or cannot be read.

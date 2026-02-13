@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import '../trafiklab/trafiklab_providers.dart';
+import '../trafiklab/trafiklab_models.dart' as tl;
 import 'package:latlong2/latlong.dart';
 
 /// If set, we call the BFF /route. If empty, we fall back to OSRM demo.
@@ -86,10 +88,24 @@ Future<List<MapRouteLeg>> _callOsrm(RouteQuery query) async {
 }
 
 final mapRouteLegsProvider = FutureProvider.family<List<MapRouteLeg>, RouteQuery>((ref, query) async {
+  // Prefer a TrafikLab planTrip if an API key is configured.
+  final api = ref.watch(trafiklabApiProvider);
+  final repo = ref.watch(trafiklabRepositoryProvider);
+  if ((api.apiKey).isNotEmpty) {
+    try {
+      final plan = await repo.planTrip(query.origin, query.destination);
+      final legs = plan.legs
+          .map((l) => MapRouteLeg(mode: l.mode, points: l.points))
+          .where((leg) => leg.points.length >= 2)
+          .toList();
+      if (legs.isNotEmpty) return legs;
+    } catch (_) {}
+  }
+
   if (defaultRouteApiUrl.isNotEmpty) {
     return await _callBff(query);
   }
 
-  // No BFF configured, use OSRM; if OSRM fails, surface the error (no silent fallback).
+  // No BFF and no TrafikLab plan available, use OSRM; if OSRM fails, surface the error.
   return await _callOsrm(query);
 });
